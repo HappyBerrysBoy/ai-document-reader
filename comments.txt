@@ -1,0 +1,13 @@
+기본적으로 qwen-2.5vl도 괜찮게 잘하는데 internvl 시리즈가 특히 더 잘하는 거 같습니다. 3.5는 reasoning model인데 좀 복잡한 문서들도 잘 처리해주더라고요
+
+https://github.com/opendataloader-project/opendataloader-pdf
+
+https://opensource.adobe.com/dc-acrobat-sdk-docs/pdfstandards/pdfreference1.7old.pdf
+
+https://github.com/QwenLM/Qwen3-VL/blob/main/cookbooks/long_document_understanding.ipynb
+
+OpenGVLab/InternVL3_5-GPT-OSS-20B-A4B-Preview 진짜 괜찮더라고요.
+
+paddleocr 
+
+로더들 - PyMuPDFLoader, PDFMinerLoader, PyPDFium2Loader
