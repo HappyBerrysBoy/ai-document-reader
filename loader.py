@@ -1,7 +1,23 @@
 import os
+import sys
 import tempfile
 import logging
 from pathlib import Path
+
+# PaddleX가 참조하는 구 langchain 경로 호환
+if "langchain.docstore.document" not in sys.modules:
+    import langchain_core.documents as _lc_docs
+    _docmod = type(sys)("langchain.docstore.document")
+    _docmod.Document = _lc_docs.Document
+    sys.modules["langchain.docstore.document"] = _docmod
+    if "langchain.docstore" not in sys.modules:
+        _ds = type(sys)("langchain.docstore")
+        sys.modules["langchain.docstore"] = _ds
+if "langchain.text_splitter" not in sys.modules:
+    from langchain_text_splitters import RecursiveCharacterTextSplitter
+    _tsmod = type(sys)("langchain.text_splitter")
+    _tsmod.RecursiveCharacterTextSplitter = RecursiveCharacterTextSplitter
+    sys.modules["langchain.text_splitter"] = _tsmod
 
 import fitz  # PyMuPDF
 from paddleocr import PaddleOCR
@@ -9,30 +25,38 @@ from paddleocr import PaddleOCR
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# PaddleOCR 인스턴스 (한글+영어, 필요 시 use_gpu=False)
+# PaddleOCR 인스턴스 (PaddleOCR 3.x / PaddleX API)
 _ocr = None
 
 def _get_ocr():
     global _ocr
     if _ocr is None:
-        _ocr = PaddleOCR(use_angle_cls=True, lang="korean", show_log=False)
+        _ocr = PaddleOCR(
+            use_doc_orientation_classify=False,
+            use_doc_unwarping=False,
+            use_textline_orientation=False,
+            lang="korean",
+            ocr_version="PP-OCRv3",
+        )
     return _ocr
 
-def _extract_text_from_ocr_result(result):
-    """PaddleOCR 결과에서 텍스트만 추출."""
-    if not result or not result[0]:
+def _extract_text_from_paddle3_result(result_list):
+    """PaddleOCR 3.x predict() 결과에서 텍스트만 추출 (rec_texts)."""
+    if not result_list:
         return ""
     lines = []
-    for line in result[0]:
-        if line and len(line) >= 2:
-            text = line[1][0] if isinstance(line[1], (list, tuple)) else str(line[1])
-            if text.strip():
-                lines.append(text.strip())
+    for res in result_list:
+        data = getattr(res, "json", None) or (res if isinstance(res, dict) else {})
+        res_inner = (data.get("res") or data) if isinstance(data, dict) else {}
+        rec_texts = res_inner.get("rec_texts") or []
+        for t in rec_texts:
+            if t and str(t).strip():
+                lines.append(str(t).strip())
     return "\n".join(lines)
 
 def _ocr_image(ocr, image_path: str) -> str:
-    result = ocr.ocr(image_path, cls=True)
-    return _extract_text_from_ocr_result(result)
+    result = ocr.predict(image_path)
+    return _extract_text_from_paddle3_result(result)
 
 def _load_pdf_with_paddleocr(file_path: str) -> str:
     ocr = _get_ocr()

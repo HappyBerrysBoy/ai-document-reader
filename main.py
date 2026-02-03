@@ -1,59 +1,58 @@
 import argparse
 import sys
 import os
+from pathlib import Path
+
 from loader import load_document
-from extractor import DocumentExtractor
 import logging
 
-# Configure logging
-logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
+logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 logger = logging.getLogger(__name__)
 
+
 def main():
-    parser = argparse.ArgumentParser(description="On-premise Document Information Extractor")
-    parser.add_argument("file", help="Path to the document (PDF, Image, DOCX, XLSX, PPTX)")
-    parser.add_argument("query", help="What information do you want to extract or summarize?")
-    parser.add_argument("--model", default="exaone3.5", help="Ollama model name (default: exaone3.5, 한글 추천)")
-    
+    parser = argparse.ArgumentParser(
+        description="문서 OCR: PDF/이미지 등에서 텍스트를 추출해 파일로 저장합니다."
+    )
+    parser.add_argument(
+        "file",
+        help="문서 경로 (PDF, 이미지, DOCX, XLSX, PPTX)",
+    )
+    parser.add_argument(
+        "-o", "--output",
+        default=None,
+        help="저장할 텍스트 파일 경로 (미지정 시 입력파일명_ocr.txt)",
+    )
     args = parser.parse_args()
-    
+
     if not os.path.exists(args.file):
         logger.error(f"Error: File '{args.file}' not found.")
         sys.exit(1)
-        
+
     try:
-        # 1. Load and parse document
-        logger.info(f"Parsing {args.file}...")
+        logger.info(f"OCR 실행: {args.file}")
         text = load_document(args.file)
-        
+
         if not text.strip():
-            logger.warning("No text extracted from the document.")
-            # We could try a fallback or just inform the user
-            
-        # 2. Extract information using LLM
-        logger.info(f"Processing query with model '{args.model}'...")
-        extractor = DocumentExtractor(model_name=args.model)
-        
-        # Optional: Analyze query first (as suggested in architecture)
-        # analysis = extractor.analyze_query(args.query, text)
-        # logger.info(f"Query type analysis: {analysis}")
-        
-        result = extractor.extract_info(text, args.query)
-        
-        # 3. Output results
-        print("\n" + "="*50)
-        print("EXTRACTION RESULT")
-        print("="*50)
-        print(result)
-        print("="*50 + "\n")
-        
+            logger.warning("추출된 텍스트가 없습니다.")
+
+        if args.output:
+            out_path = Path(args.output)
+        else:
+            p = Path(args.file)
+            out_path = p.parent / f"{p.stem}_ocr.txt"
+
+        out_path = out_path.resolve()
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        out_path.write_text(text, encoding="utf-8")
+
+        logger.info(f"결과 저장: {out_path}")
+        print(f"\n저장됨: {out_path}\n")
+
     except Exception as e:
         logger.error(f"An error occurred: {str(e)}")
-        if " Ollama " in str(e) or "connection" in str(e).lower():
-            print("\nTIP: Make sure Ollama is running locally and the model is downloaded.")
-            print(f"Run: ollama serve  (in a separate terminal)")
-            print(f"Run: ollama pull {args.model}")
         sys.exit(1)
+
 
 if __name__ == "__main__":
     main()

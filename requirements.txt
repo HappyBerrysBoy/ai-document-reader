@@ -1,6 +1,7 @@
 langchain
 langchain-community
 langchain-ollama
+langchain-text-splitters
 paddlepaddle
 paddleocr
 pymupdf
