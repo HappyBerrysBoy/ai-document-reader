@@ -49,6 +49,18 @@ def _get_ocr(lang="korean"):
     """
     global _ocr_cache
     if lang not in _ocr_cache:
+        # GPU 사용 가능 여부 확인 (CUDA)
+        try:
+            import paddle
+            use_gpu = paddle.device.is_compiled_with_cuda() and paddle.device.cuda.device_count() > 0
+            if use_gpu:
+                logger.info(f"GPU detected: Using CUDA (device count: {paddle.device.cuda.device_count()})")
+            else:
+                logger.info("GPU not available: Using CPU")
+        except Exception as e:
+            logger.info(f"Unable to detect GPU, using CPU: {e}")
+            use_gpu = False
+
         # Windows·WSL: oneDNN 경로에서 ConvertPirAttribute2RuntimeAttribute 미구현 에러 방지
         # DOC_OCR_DISABLE_MKLDNN=1 이면 어떤 환경에서도 MKLDNN 비활성화
         if os.environ.get("DOC_OCR_DISABLE_MKLDNN", "").strip() in ("1", "true", "yes"):
@@ -57,6 +69,7 @@ def _get_ocr(lang="korean"):
             _enable_mkldnn = platform.system() == "Darwin" or (
                 platform.system() == "Linux" and not _is_wsl()
             )
+
         _ocr_cache[lang] = PaddleOCR(
             use_doc_orientation_classify=False,
             use_doc_unwarping=False,
@@ -64,6 +77,7 @@ def _get_ocr(lang="korean"):
             lang=lang,
             ocr_version="PP-OCRv5",  # v5: 한글 모델이 한·영 동시 지원, 106개 언어
             enable_mkldnn=_enable_mkldnn,
+            use_gpu=use_gpu,
         )
     return _ocr_cache[lang]
 
