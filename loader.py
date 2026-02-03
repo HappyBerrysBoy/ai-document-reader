@@ -50,36 +50,42 @@ def _get_ocr(lang="korean"):
     global _ocr_cache
     if lang not in _ocr_cache:
         # GPU 사용 가능 여부 확인 및 device 설정
+        # 환경 변수로 GPU 사용 강제 비활성화 가능: DOC_OCR_FORCE_CPU=1
         use_gpu_device = False
-        try:
-            import paddle
-            # CUDA 사용 가능 여부 확인
-            if paddle.device.is_compiled_with_cuda():
-                gpu_count = paddle.device.cuda.device_count()
-                if gpu_count > 0:
-                    try:
-                        paddle.device.set_device('gpu:0')
-                        # 간단한 연산으로 GPU 실제 작동 확인
-                        test_tensor = paddle.to_tensor([1.0])
-                        _ = test_tensor + 1
-                        use_gpu_device = True
-                        logger.info(f"GPU detected: Using CUDA (device count: {gpu_count})")
-                    except Exception as gpu_err:
-                        logger.warning(f"GPU available but test failed, fallback to CPU: {gpu_err}")
-                        paddle.device.set_device('cpu')
-                else:
-                    logger.info("CUDA compiled but no GPU found: Using CPU")
-                    paddle.device.set_device('cpu')
-            else:
-                logger.info("PaddlePaddle not compiled with CUDA: Using CPU")
-                paddle.device.set_device('cpu')
-        except Exception as e:
-            logger.info(f"Unable to detect GPU, using CPU: {e}")
+        force_cpu = os.environ.get("DOC_OCR_FORCE_CPU", "").strip() in ("1", "true", "yes")
+
+        if force_cpu:
+            logger.info("GPU disabled by DOC_OCR_FORCE_CPU environment variable")
+        else:
             try:
                 import paddle
-                paddle.device.set_device('cpu')
-            except:
-                pass
+                # CUDA 사용 가능 여부 확인
+                if paddle.device.is_compiled_with_cuda():
+                    gpu_count = paddle.device.cuda.device_count()
+                    if gpu_count > 0:
+                        try:
+                            paddle.device.set_device('gpu:0')
+                            # 간단한 연산으로 GPU 실제 작동 확인
+                            test_tensor = paddle.to_tensor([1.0])
+                            _ = test_tensor + 1
+                            use_gpu_device = True
+                            logger.info(f"GPU detected: Using CUDA (device count: {gpu_count})")
+                        except Exception as gpu_err:
+                            logger.warning(f"GPU available but test failed, fallback to CPU: {gpu_err}")
+                            paddle.device.set_device('cpu')
+                    else:
+                        logger.info("CUDA compiled but no GPU found: Using CPU")
+                        paddle.device.set_device('cpu')
+                else:
+                    logger.info("PaddlePaddle not compiled with CUDA: Using CPU")
+                    paddle.device.set_device('cpu')
+            except Exception as e:
+                logger.info(f"Unable to detect GPU, using CPU: {e}")
+                try:
+                    import paddle
+                    paddle.device.set_device('cpu')
+                except:
+                    pass
 
         # Windows·WSL: oneDNN 경로에서 ConvertPirAttribute2RuntimeAttribute 미구현 에러 방지
         # DOC_OCR_DISABLE_MKLDNN=1 이면 어떤 환경에서도 MKLDNN 비활성화
