@@ -2,7 +2,10 @@ langchain
 langchain-community
 langchain-ollama
 langchain-text-splitters
-paddlepaddle
+# GPU 서버: paddlepaddle-gpu 설치 (CUDA 11.8 기준)
+# CPU 환경(Mac 등): paddlepaddle 설치
+paddlepaddle-gpu  # GPU 버전 (서버용)
+# paddlepaddle  # CPU 버전 (Mac 개발용)
 paddleocr
 pymupdf
 pandas
