@@ -1,11 +1,9 @@
 langchain
 langchain-community
 langchain-ollama
-unstructured[all-docs]
-python-magic
-python-multipart
-pi-heif
-tesseract
+paddlepaddle
+paddleocr
+pymupdf
 pandas
 openpyxl
 python-pptx
