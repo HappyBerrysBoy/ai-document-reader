@@ -2,6 +2,7 @@ import os
 import sys
 import tempfile
 import logging
+import platform
 from pathlib import Path
 
 # PaddleX가 참조하는 구 langchain 경로 호환
@@ -26,19 +27,29 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # PaddleOCR 인스턴스 (PaddleOCR 3.x / PaddleX API)
-_ocr = None
+# lang별 캐시: 같은 lang이면 재사용 (다국어 문서 대비)
+_ocr_cache = {}
 
-def _get_ocr():
-    global _ocr
-    if _ocr is None:
-        _ocr = PaddleOCR(
+def _get_ocr(lang="korean"):
+    """
+    lang: 인식할 언어. 하나만 지정 가능하지만, 일부 모델은 여러 언어를 함께 지원합니다.
+    - "korean" (기본): PP-OCRv5 한글 모델 → 한글 + 영어 동시 지원
+    - "ch": 중국어(간체/번체/병음) + 영어 + 일본어
+    - "en", "fr", "de", "japan" 등 106개 언어 약어 지원 (문서 Section 4 참고)
+    """
+    global _ocr_cache
+    if lang not in _ocr_cache:
+        # Windows: oneDNN 경로에서 ConvertPirAttribute2RuntimeAttribute 미구현 에러 방지
+        _enable_mkldnn = platform.system() != "Windows"
+        _ocr_cache[lang] = PaddleOCR(
             use_doc_orientation_classify=False,
             use_doc_unwarping=False,
             use_textline_orientation=False,
-            lang="korean",
-            ocr_version="PP-OCRv3",
+            lang=lang,
+            ocr_version="PP-OCRv5",  # v5: 한글 모델이 한·영 동시 지원, 106개 언어
+            enable_mkldnn=_enable_mkldnn,
         )
-    return _ocr
+    return _ocr_cache[lang]
 
 def _extract_text_from_paddle3_result(result_list):
     """PaddleOCR 3.x predict() 결과에서 텍스트만 추출 (rec_texts)."""
@@ -58,8 +69,8 @@ def _ocr_image(ocr, image_path: str) -> str:
     result = ocr.predict(image_path)
     return _extract_text_from_paddle3_result(result)
 
-def _load_pdf_with_paddleocr(file_path: str) -> str:
-    ocr = _get_ocr()
+def _load_pdf_with_paddleocr(file_path: str, lang: str = "korean") -> str:
+    ocr = _get_ocr(lang)
     doc = fitz.open(file_path)
     texts = []
     try:
@@ -78,8 +89,8 @@ def _load_pdf_with_paddleocr(file_path: str) -> str:
         doc.close()
     return "\n\n".join(texts)
 
-def _load_image_with_paddleocr(file_path: str) -> str:
-    ocr = _get_ocr()
+def _load_image_with_paddleocr(file_path: str, lang: str = "korean") -> str:
+    ocr = _get_ocr(lang)
     return _ocr_image(ocr, file_path)
 
 def _load_docx(file_path: str) -> str:
@@ -108,9 +119,12 @@ def _load_pptx(file_path: str) -> str:
                 parts.append(shape.text.strip())
     return "\n".join(parts)
 
-def load_document(file_path: str) -> str:
+def load_document(file_path: str, lang: str = "korean") -> str:
     """
     PaddleOCR(이미지/PDF) 또는 기본 라이브러리(DOCX, XLSX, PPTX)로 문서 텍스트 추출.
+
+    lang: OCR 언어. 기본 "korean"은 한글+영어 동시 지원(PP-OCRv5).
+          "ch"(중국어+영어+일본어), "en", "fr", "de" 등 106개 언어 약어 지원.
     """
     if not os.path.exists(file_path):
         raise FileNotFoundError(f"File not found: {file_path}")
@@ -120,9 +134,9 @@ def load_document(file_path: str) -> str:
     suffix = path.suffix.lower()
 
     if suffix == ".pdf":
-        return _load_pdf_with_paddleocr(file_path)
+        return _load_pdf_with_paddleocr(file_path, lang)
     if suffix in {".png", ".jpg", ".jpeg", ".bmp", ".gif", ".webp", ".tiff", ".tif"}:
-        return _load_image_with_paddleocr(file_path)
+        return _load_image_with_paddleocr(file_path, lang)
     if suffix == ".docx":
         return _load_docx(file_path)
     if suffix == ".xlsx":
@@ -132,7 +146,7 @@ def load_document(file_path: str) -> str:
 
     # 기본: 이미지로 시도 후 실패 시 에러
     try:
-        return _load_image_with_paddleocr(file_path)
+        return _load_image_with_paddleocr(file_path, lang)
     except Exception:
         raise ValueError(
             f"Unsupported file type: {suffix}. "

@@ -23,6 +23,11 @@ def main():
         default=None,
         help="저장할 텍스트 파일 경로 (미지정 시 입력파일명_ocr.txt)",
     )
+    parser.add_argument(
+        "--lang",
+        default="korean",
+        help="OCR 언어 (기본: korean, 한·영 동시 지원). ch, en, fr, de, japan 등 106개 언어 지원",
+    )
     args = parser.parse_args()
 
     if not os.path.exists(args.file):
@@ -30,8 +35,8 @@ def main():
         sys.exit(1)
 
     try:
-        logger.info(f"OCR 실행: {args.file}")
-        text = load_document(args.file)
+        logger.info(f"OCR 실행: {args.file} (lang={args.lang})")
+        text = load_document(args.file, lang=args.lang)
 
         if not text.strip():
             logger.warning("추출된 텍스트가 없습니다.")
