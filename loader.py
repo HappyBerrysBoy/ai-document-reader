@@ -90,17 +90,20 @@ def _get_ocr(lang="korean"):
                 platform.system() == "Linux" and not _is_wsl()
             )
 
-        # max_side_limit: 이미지 최대 크기 제한 (기본 4000 → 2000으로 낮춤)
-        # 큰 이미지는 자동으로 리사이징되어 메모리 사용량 감소
-        _ocr_cache[lang] = PaddleOCR(
-            use_doc_orientation_classify=False,
-            use_doc_unwarping=False,
-            use_textline_orientation=False,
-            lang=lang,
-            ocr_version="PP-OCRv5",  # v5: 한글 모델이 한·영 동시 지원, 106개 언어
-            enable_mkldnn=_enable_mkldnn,
-            max_side_len=2000,  # 메모리 절약을 위한 이미지 크기 제한
-        )
+        # 이미지 최대 크기 제한 (기본 960 → 2000으로 증가하여 품질 향상)
+        # 큰 이미지는 자동으로 리사이징되어 메모리 사용량 관리
+        # PaddleOCR 버전에 따라 파라미터명이 다름: det_limit_side_len (v3.x), max_side_len (구버전)
+        ocr_params = {
+            "use_doc_orientation_classify": False,
+            "use_doc_unwarping": False,
+            "use_textline_orientation": False,
+            "lang": lang,
+            "ocr_version": "PP-OCRv5",  # v5: 한글 모델이 한·영 동시 지원, 106개 언어
+            "enable_mkldnn": _enable_mkldnn,
+            "det_limit_side_len": 2000,  # PaddleOCR 3.x: detection 이미지 크기 제한
+        }
+
+        _ocr_cache[lang] = PaddleOCR(**ocr_params)
     return _ocr_cache[lang]
 
 def _extract_text_from_paddle3_result(result_list):
