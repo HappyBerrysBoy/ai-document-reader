@@ -30,6 +30,16 @@ logger = logging.getLogger(__name__)
 # lang별 캐시: 같은 lang이면 재사용 (다국어 문서 대비)
 _ocr_cache = {}
 
+def _is_wsl():
+    """WSL(Windows Subsystem for Linux) 여부. WSL에서도 oneDNN 에러 발생."""
+    if platform.system() != "Linux":
+        return False
+    try:
+        with open("/proc/version", "r", encoding="utf-8", errors="ignore") as f:
+            return "microsoft" in f.read().lower()
+    except Exception:
+        return bool(os.environ.get("WSL_DISTRO_NAME"))
+
 def _get_ocr(lang="korean"):
     """
     lang: 인식할 언어. 하나만 지정 가능하지만, 일부 모델은 여러 언어를 함께 지원합니다.
@@ -39,8 +49,14 @@ def _get_ocr(lang="korean"):
     """
     global _ocr_cache
     if lang not in _ocr_cache:
-        # Windows: oneDNN 경로에서 ConvertPirAttribute2RuntimeAttribute 미구현 에러 방지
-        _enable_mkldnn = platform.system() != "Windows"
+        # Windows·WSL: oneDNN 경로에서 ConvertPirAttribute2RuntimeAttribute 미구현 에러 방지
+        # DOC_OCR_DISABLE_MKLDNN=1 이면 어떤 환경에서도 MKLDNN 비활성화
+        if os.environ.get("DOC_OCR_DISABLE_MKLDNN", "").strip() in ("1", "true", "yes"):
+            _enable_mkldnn = False
+        else:
+            _enable_mkldnn = platform.system() == "Darwin" or (
+                platform.system() == "Linux" and not _is_wsl()
+            )
         _ocr_cache[lang] = PaddleOCR(
             use_doc_orientation_classify=False,
             use_doc_unwarping=False,
