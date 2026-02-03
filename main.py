@@ -13,7 +13,7 @@ def main():
     parser = argparse.ArgumentParser(description="On-premise Document Information Extractor")
     parser.add_argument("file", help="Path to the document (PDF, Image, DOCX, XLSX, PPTX)")
     parser.add_argument("query", help="What information do you want to extract or summarize?")
-    parser.add_argument("--model", default="llama3.2", help="Ollama model name (default: llama3.2)")
+    parser.add_argument("--model", default="exaone3.5", help="Ollama model name (default: exaone3.5, 한글 추천)")
     
     args = parser.parse_args()
     

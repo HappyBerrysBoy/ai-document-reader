@@ -4,7 +4,7 @@ from langchain_core.runnables import RunnablePassthrough
 from langchain_core.output_parsers import StrOutputParser
 
 class DocumentExtractor:
-    def __init__(self, model_name="llama3.2"):
+    def __init__(self, model_name="exaone3.5"):
         self.llm = OllamaLLM(model=model_name)
         
     def analyze_query(self, query, text_preview):
