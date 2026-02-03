@@ -2,12 +2,15 @@ langchain
 langchain-community
 langchain-ollama
 langchain-text-splitters
-# GPU 서버: paddlepaddle-gpu 설치 (CUDA 11.8 기준)
-# CPU 환경(Mac 등): paddlepaddle 설치
-paddlepaddle-gpu  # GPU 버전 (서버용)
-# paddlepaddle  # CPU 버전 (Mac 개발용)
+# PaddlePaddle은 CUDA 버전에 맞춰 수동 설치 필요 (GPU 서버용)
+# README_GPU.md 참고하여 설치:
+# - CUDA 11.8: python -m pip install paddlepaddle-gpu==2.6.1.post118 -f https://www.paddlepaddle.org.cn/whl/linux/mkl/avx/stable.html
+# - CUDA 12.0: python -m pip install paddlepaddle-gpu==2.6.1.post120 -f https://www.paddlepaddle.org.cn/whl/linux/mkl/avx/stable.html
+# - CUDA 13.0: python -m pip install paddlepaddle-gpu==3.0.0b2 -i https://www.paddlepaddle.org.cn/packages/stable/cu123/
+# Mac/CPU 개발용: pip install paddlepaddle
 paddleocr
 pymupdf
+Pillow  # 이미지 리사이징용
 pandas
 openpyxl
 python-pptx

@@ -50,16 +50,31 @@ def _get_ocr(lang="korean"):
     global _ocr_cache
     if lang not in _ocr_cache:
         # GPU 사용 가능 여부 확인 및 device 설정
+        use_gpu_device = False
         try:
             import paddle
-            if paddle.device.is_compiled_with_cuda() and paddle.device.cuda.device_count() > 0:
-                paddle.device.set_device('gpu:0')
-                logger.info(f"GPU detected: Using CUDA (device count: {paddle.device.cuda.device_count()})")
+            # CUDA 사용 가능 여부 확인
+            if paddle.device.is_compiled_with_cuda():
+                gpu_count = paddle.device.cuda.device_count()
+                if gpu_count > 0:
+                    try:
+                        paddle.device.set_device('gpu:0')
+                        # 간단한 연산으로 GPU 실제 작동 확인
+                        test_tensor = paddle.to_tensor([1.0])
+                        _ = test_tensor + 1
+                        use_gpu_device = True
+                        logger.info(f"GPU detected: Using CUDA (device count: {gpu_count})")
+                    except Exception as gpu_err:
+                        logger.warning(f"GPU available but test failed, fallback to CPU: {gpu_err}")
+                        paddle.device.set_device('cpu')
+                else:
+                    logger.info("CUDA compiled but no GPU found: Using CPU")
+                    paddle.device.set_device('cpu')
             else:
+                logger.info("PaddlePaddle not compiled with CUDA: Using CPU")
                 paddle.device.set_device('cpu')
-                logger.info("GPU not available: Using CPU")
         except Exception as e:
-            logger.info(f"Unable to set GPU device, using CPU: {e}")
+            logger.info(f"Unable to detect GPU, using CPU: {e}")
             try:
                 import paddle
                 paddle.device.set_device('cpu')
@@ -75,6 +90,8 @@ def _get_ocr(lang="korean"):
                 platform.system() == "Linux" and not _is_wsl()
             )
 
+        # max_side_limit: 이미지 최대 크기 제한 (기본 4000 → 2000으로 낮춤)
+        # 큰 이미지는 자동으로 리사이징되어 메모리 사용량 감소
         _ocr_cache[lang] = PaddleOCR(
             use_doc_orientation_classify=False,
             use_doc_unwarping=False,
@@ -82,6 +99,7 @@ def _get_ocr(lang="korean"):
             lang=lang,
             ocr_version="PP-OCRv5",  # v5: 한글 모델이 한·영 동시 지원, 106개 언어
             enable_mkldnn=_enable_mkldnn,
+            max_side_len=2000,  # 메모리 절약을 위한 이미지 크기 제한
         )
     return _ocr_cache[lang]
 
@@ -100,8 +118,39 @@ def _extract_text_from_paddle3_result(result_list):
     return "\n".join(lines)
 
 def _ocr_image(ocr, image_path: str) -> str:
-    result = ocr.predict(image_path)
-    return _extract_text_from_paddle3_result(result)
+    """
+    이미지를 OCR 처리. 너무 큰 이미지는 미리 리사이징하여 메모리 오류 방지.
+    """
+    from PIL import Image
+
+    # 이미지 크기 확인 및 필요시 리사이징
+    try:
+        img = Image.open(image_path)
+        width, height = img.size
+        max_dimension = max(width, height)
+
+        # 2000px 초과 시 리사이징 (메모리 절약)
+        if max_dimension > 2000:
+            scale = 2000 / max_dimension
+            new_width = int(width * scale)
+            new_height = int(height * scale)
+            img = img.resize((new_width, new_height), Image.Resampling.LANCZOS)
+
+            # 임시 파일로 저장
+            with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
+                img.save(tmp.name)
+                try:
+                    result = ocr.predict(tmp.name)
+                    return _extract_text_from_paddle3_result(result)
+                finally:
+                    os.unlink(tmp.name)
+        else:
+            result = ocr.predict(image_path)
+            return _extract_text_from_paddle3_result(result)
+    except Exception as e:
+        logger.warning(f"이미지 전처리 실패, 원본으로 시도: {e}")
+        result = ocr.predict(image_path)
+        return _extract_text_from_paddle3_result(result)
 
 def _load_pdf_with_paddleocr(file_path: str, lang: str = "korean") -> str:
     ocr = _get_ocr(lang)
@@ -110,7 +159,8 @@ def _load_pdf_with_paddleocr(file_path: str, lang: str = "korean") -> str:
     try:
         for i in range(len(doc)):
             page = doc.load_page(i)
-            pix = page.get_pixmap(alpha=False, dpi=150)
+            # DPI 150 → 120으로 낮춤 (메모리 절약, 여전히 충분한 품질)
+            pix = page.get_pixmap(alpha=False, dpi=120)
             with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as f:
                 pix.save(f.name)
                 try:
