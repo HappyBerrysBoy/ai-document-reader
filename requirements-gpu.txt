@@ -1,0 +1,17 @@
+# GPU 전용 requirements
+# WSL Ubuntu 24.04 + CUDA 13.0 + RTX 3080 최적화
+
+# PaddlePaddle GPU는 아래 명령어로 설치:
+# python -m pip install paddlepaddle-gpu==2.6.1.post118 -f https://www.paddlepaddle.org.cn/whl/linux/mkl/avx/stable.html
+
+paddleocr==2.7.3
+pymupdf==1.23.8
+Pillow==10.2.0
+pandas
+openpyxl
+python-pptx
+python-docx
+langchain
+langchain-community
+langchain-ollama
+langchain-text-splitters
