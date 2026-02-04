@@ -31,10 +31,10 @@ pip uninstall -y paddlepaddle paddlepaddle-gpu 2>/dev/null || true
 echo "✓ 기존 패키지 제거 완료"
 echo ""
 
-# PaddlePaddle GPU 설치 (CUDA 11.8 - CUDA 13.0과 호환)
+# PaddlePaddle GPU 설치 (CUDA 12.0 - CUDA 13.0과 호환)
 echo "Step 3: PaddlePaddle GPU 설치"
-echo "CUDA 13.0은 하위 호환되므로 CUDA 11.8 버전 사용"
-python -m pip install paddlepaddle-gpu==2.6.1.post118 -f https://www.paddlepaddle.org.cn/whl/linux/mkl/avx/stable.html
+echo "CUDA 13.0은 하위 호환되므로 CUDA 12.0 버전 사용"
+python -m pip install paddlepaddle-gpu==2.6.1.post120 -f https://www.paddlepaddle.org.cn/whl/linux/mkl/avx/stable.html
 echo "✓ PaddlePaddle GPU 설치 완료"
 echo ""
 
