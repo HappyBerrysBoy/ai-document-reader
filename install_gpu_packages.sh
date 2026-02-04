@@ -38,8 +38,14 @@ python -m pip install paddlepaddle-gpu==2.6.1.post120 -f https://www.paddlepaddl
 echo "✓ PaddlePaddle GPU 설치 완료"
 echo ""
 
+# numpy 버전 호환성 맞추기
+echo "Step 4: numpy 버전 맞추기 (ABI 호환성)"
+pip install "numpy<2.0,>=1.19" --force-reinstall
+echo "✓ numpy 설치 완료"
+echo ""
+
 # 나머지 패키지 설치
-echo "Step 4: 의존성 패키지 설치"
+echo "Step 5: 의존성 패키지 설치"
 pip install paddleocr==2.7.3
 pip install pymupdf==1.23.8
 pip install Pillow==10.2.0
@@ -49,7 +55,7 @@ echo "✓ 의존성 패키지 설치 완료"
 echo ""
 
 # GPU 확인
-echo "Step 5: GPU 작동 확인"
+echo "Step 6: GPU 작동 확인"
 python -c "
 import paddle
 print('PaddlePaddle 버전:', paddle.__version__)
@@ -66,14 +72,14 @@ else:
 echo ""
 
 # 모델 캐시 삭제
-echo "Step 6: 이전 모델 캐시 삭제"
+echo "Step 7: 이전 모델 캐시 삭제"
 rm -rf ~/.paddleocr/ 2>/dev/null || true
 rm -rf ~/.paddlex/ 2>/dev/null || true
 echo "✓ 캐시 삭제 완료"
 echo ""
 
 # 환경 변수 설정 파일 생성
-echo "Step 7: 환경 변수 설정 파일 생성"
+echo "Step 8: 환경 변수 설정 파일 생성"
 cat > .env.gpu << 'EOF'
 # WSL GPU 환경 변수
 export LD_LIBRARY_PATH=/usr/lib/wsl/lib:$LD_LIBRARY_PATH
