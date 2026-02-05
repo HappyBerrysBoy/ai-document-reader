@@ -1,0 +1,33 @@
+# GPU OCR Dockerfile
+FROM nvidia/cuda:12.0.0-cudnn8-runtime-ubuntu22.04
+
+# 기본 패키지
+RUN apt-get update && apt-get install -y \
+    python3.11 \
+    python3-pip \
+    wget \
+    && rm -rf /var/lib/apt/lists/*
+
+# Python 심볼릭 링크
+RUN ln -s /usr/bin/python3.11 /usr/bin/python
+
+# 작업 디렉토리
+WORKDIR /app
+
+# numpy 먼저 설치 (ABI 호환성)
+RUN pip install "numpy<2.0,>=1.19"
+
+# PaddlePaddle GPU
+RUN pip install paddlepaddle-gpu==2.6.1.post120 -f https://www.paddlepaddle.org.cn/whl/linux/mkl/avx/stable.html
+
+# 의존성
+COPY requirements-gpu.txt .
+RUN pip install -r requirements-gpu.txt
+
+# 소스 코드
+COPY loader_gpu.py main_gpu.py ./
+
+# 환경 변수
+ENV PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK=True
+
+CMD ["python", "main_gpu.py", "--help"]
