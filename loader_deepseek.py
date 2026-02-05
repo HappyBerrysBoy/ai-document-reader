@@ -3,7 +3,6 @@ import sys
 import tempfile
 import logging
 from pathlib import Path
-from typing import List
 import torch
 from PIL import Image
 from transformers import AutoModel, AutoTokenizer
@@ -12,19 +11,19 @@ import fitz  # PyMuPDF
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# DeepSeek 모델 캐시
+# DeepSeek OCR 모델 캐시
 _model_cache = None
 _tokenizer_cache = None
 
 
 def _load_model():
-    """DeepSeek VL2 모델 로드"""
+    """DeepSeek OCR 모델 로드"""
     global _model_cache, _tokenizer_cache
 
     if _model_cache is None:
-        logger.info("DeepSeek VL2 모델 로딩 중...")
+        logger.info("DeepSeek OCR 모델 로딩 중...")
 
-        model_name = "deepseek-ai/deepseek-vl2"
+        model_name = "deepseek-ai/DeepSeek-OCR"
 
         # GPU 확인
         device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -40,12 +39,16 @@ def _load_model():
                 trust_remote_code=True
             )
 
-            # Model 로드 (trust_remote_code=True로 커스텀 모델 코드 사용)
+            # Model 로드
             _model_cache = AutoModel.from_pretrained(
                 model_name,
                 trust_remote_code=True,
                 torch_dtype=torch.bfloat16 if device == "cuda" else torch.float32,
-            ).to(device)
+                device_map="auto" if device == "cuda" else None,
+            )
+
+            if device == "cpu":
+                _model_cache = _model_cache.to(device)
 
             _model_cache.eval()
             logger.info("✓ 모델 로딩 완료")
@@ -61,12 +64,12 @@ def _load_model():
 
 def _extract_text_from_image(image: Image.Image) -> str:
     """
-    DeepSeek VL2로 이미지에서 텍스트 추출
+    DeepSeek OCR로 이미지에서 텍스트 추출
     """
     model, tokenizer = _load_model()
     device = next(model.parameters()).device
 
-    # 이미지 크기 조정 (너무 크면 메모리 초과)
+    # 이미지 크기 조정 (메모리 관리)
     max_size = 1024
     if max(image.size) > max_size:
         ratio = max_size / max(image.size)
@@ -80,28 +83,26 @@ def _extract_text_from_image(image: Image.Image) -> str:
         image_path = tmp.name
 
     try:
-        # OCR 프롬프트 (한글/영어 최적화)
-        conversation = [
-            {
-                "role": "User",
-                "content": f"<image>\nExtract all text from this image accurately. The text may contain Korean (한글) and English characters. Please preserve the exact text layout and return only the extracted text without any additional explanation.",
-                "images": [image_path]
-            },
-            {
-                "role": "Assistant",
-                "content": ""
-            }
-        ]
+        # DeepSeek OCR 프롬프트 (한글/영어 최적화)
+        # 기본 OCR: "<image>\nFree OCR."
+        # 한글/영어 명시적 지원
+        prompt = "<image>\nExtract all text from this image. The text may contain Korean (한글) and English. Return only the text."
 
-        # 입력 준비 (DeepSeek VL2 전용 API)
-        prepare_inputs = model.prepare_inputs_for_generation
+        # 입력 준비
         inputs = model.build_conversation_input_ids(
-            tokenizer=tokenizer,
-            conversation=conversation,
+            tokenizer,
+            query=prompt,
             images=[image_path],
-            force_batchify=True
+            history=[]
         )
-        inputs = {k: v.to(device) for k, v in inputs.items()}
+
+        # GPU로 이동
+        inputs = {
+            "input_ids": inputs["input_ids"].unsqueeze(0).to(device),
+            "token_type_ids": inputs["token_type_ids"].unsqueeze(0).to(device),
+            "attention_mask": inputs["attention_mask"].unsqueeze(0).to(device),
+            "images": [[inputs["images"][0].to(device)]],
+        }
 
         # 추론
         with torch.no_grad():
@@ -109,12 +110,16 @@ def _extract_text_from_image(image: Image.Image) -> str:
                 **inputs,
                 max_new_tokens=2048,
                 do_sample=False,
+                pad_token_id=tokenizer.eos_token_id,
             )
 
         # 텍스트 디코딩
-        text = tokenizer.decode(outputs[0][inputs["input_ids"].shape[1]:], skip_special_tokens=True)
+        response = tokenizer.decode(
+            outputs[0][inputs["input_ids"].shape[1]:],
+            skip_special_tokens=True
+        ).strip()
 
-        return text.strip()
+        return response
 
     except Exception as e:
         logger.error(f"OCR 처리 중 오류: {e}")
@@ -152,10 +157,11 @@ def _load_pdf_with_deepseek(file_path: str) -> str:
             logger.info(f"페이지 {i+1}/{total_pages} 처리 중...")
             page = doc.load_page(i)
 
-            # 페이지를 이미지로 변환 (DPI 150)
+            # 페이지를 이미지로 변환
             pix = page.get_pixmap(alpha=False, dpi=150)
 
             # PIL Image로 변환
+            import io
             img_data = pix.tobytes("png")
             image = Image.open(io.BytesIO(img_data))
 
@@ -204,7 +210,7 @@ def _load_pptx(file_path: str) -> str:
 
 def load_document(file_path: str) -> str:
     """
-    DeepSeek VL2로 문서 텍스트 추출
+    DeepSeek OCR로 문서 텍스트 추출 (GPU 가속)
 
     Args:
         file_path: 문서 경로
@@ -239,10 +245,6 @@ def load_document(file_path: str) -> str:
                 f"지원하지 않는 파일 형식: {suffix}. "
                 "지원 형식: PDF, PNG, JPG, BMP, GIF, WEBP, TIFF, DOCX, XLSX, PPTX."
             )
-
-
-# PDF 처리를 위한 io import 추가
-import io
 
 
 if __name__ == "__main__":

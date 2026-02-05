@@ -1,6 +1,7 @@
 import argparse
 import sys
 import os
+import time
 from pathlib import Path
 import logging
 
@@ -15,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 def main():
     parser = argparse.ArgumentParser(
-        description="DeepSeek VL2 기반 문서 OCR (GPU 가속)"
+        description="DeepSeek OCR 기반 문서 OCR (GPU 가속)"
     )
     parser.add_argument(
         "file",
@@ -40,14 +41,19 @@ def main():
         logger.error(f"파일을 찾을 수 없습니다: {args.file}")
         sys.exit(1)
 
+    # 시작 시간 기록
+    start_time = time.time()
+
     try:
         logger.info("=" * 60)
-        logger.info("DeepSeek VL2 OCR 시작")
+        logger.info("DeepSeek OCR 시작")
         logger.info(f"입력 파일: {args.file}")
         logger.info("=" * 60)
 
         # OCR 실행
+        ocr_start = time.time()
         text = load_document(args.file)
+        ocr_time = time.time() - ocr_start
 
         if not text.strip():
             logger.warning("⚠️  추출된 텍스트가 없습니다.")
@@ -64,10 +70,15 @@ def main():
         out_path.parent.mkdir(parents=True, exist_ok=True)
         out_path.write_text(text, encoding="utf-8")
 
+        # 전체 소요 시간
+        total_time = time.time() - start_time
+
         logger.info("=" * 60)
         logger.info(f"✓ OCR 완료")
         logger.info(f"✓ 결과 저장: {out_path}")
         logger.info(f"✓ 추출된 문자 수: {len(text)}")
+        logger.info(f"✓ OCR 처리 시간: {ocr_time:.2f}초")
+        logger.info(f"✓ 전체 소요 시간: {total_time:.2f}초")
         logger.info("=" * 60)
 
         # 미리보기
