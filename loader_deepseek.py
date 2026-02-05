@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import List
 import torch
 from PIL import Image
-from transformers import AutoModelForVision2Seq, AutoProcessor
+from transformers import AutoModel, AutoTokenizer
 import fitz  # PyMuPDF
 
 logging.basicConfig(level=logging.INFO)
@@ -14,12 +14,12 @@ logger = logging.getLogger(__name__)
 
 # DeepSeek 모델 캐시
 _model_cache = None
-_processor_cache = None
+_tokenizer_cache = None
 
 
 def _load_model():
     """DeepSeek VL2 모델 로드"""
-    global _model_cache, _processor_cache
+    global _model_cache, _tokenizer_cache
 
     if _model_cache is None:
         logger.info("DeepSeek VL2 모델 로딩 중...")
@@ -34,17 +34,17 @@ def _load_model():
             logger.warning("⚠️  GPU를 사용할 수 없습니다. CPU 모드로 실행됩니다 (매우 느림).")
 
         try:
-            # Processor 로드
-            _processor_cache = AutoProcessor.from_pretrained(
+            # Tokenizer 로드
+            _tokenizer_cache = AutoTokenizer.from_pretrained(
                 model_name,
                 trust_remote_code=True
             )
 
-            # Model 로드
-            _model_cache = AutoModelForVision2Seq.from_pretrained(
+            # Model 로드 (trust_remote_code=True로 커스텀 모델 코드 사용)
+            _model_cache = AutoModel.from_pretrained(
                 model_name,
                 trust_remote_code=True,
-                torch_dtype=torch.float16 if device == "cuda" else torch.float32,
+                torch_dtype=torch.bfloat16 if device == "cuda" else torch.float32,
             ).to(device)
 
             _model_cache.eval()
@@ -56,14 +56,14 @@ def _load_model():
             logger.error(f"  huggingface-cli download {model_name}")
             raise
 
-    return _model_cache, _processor_cache
+    return _model_cache, _tokenizer_cache
 
 
 def _extract_text_from_image(image: Image.Image) -> str:
     """
     DeepSeek VL2로 이미지에서 텍스트 추출
     """
-    model, processor = _load_model()
+    model, tokenizer = _load_model()
     device = next(model.parameters()).device
 
     # 이미지 크기 조정 (너무 크면 메모리 초과)
@@ -74,18 +74,34 @@ def _extract_text_from_image(image: Image.Image) -> str:
         image = image.resize(new_size, Image.Resampling.LANCZOS)
         logger.info(f"이미지 리사이징: {new_size}")
 
-    # OCR 프롬프트 (한글/영어 최적화)
-    prompt = """Extract all text from this image accurately. The text may contain Korean (한글) and English characters.
-Please preserve the exact text layout and return only the extracted text without any additional explanation.
-Ensure proper recognition of both Korean and English characters."""
+    # 이미지를 임시 파일로 저장
+    with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
+        image.save(tmp.name)
+        image_path = tmp.name
 
     try:
-        # 입력 준비
-        inputs = processor(
-            text=prompt,
-            images=image,
-            return_tensors="pt"
-        ).to(device)
+        # OCR 프롬프트 (한글/영어 최적화)
+        conversation = [
+            {
+                "role": "User",
+                "content": f"<image>\nExtract all text from this image accurately. The text may contain Korean (한글) and English characters. Please preserve the exact text layout and return only the extracted text without any additional explanation.",
+                "images": [image_path]
+            },
+            {
+                "role": "Assistant",
+                "content": ""
+            }
+        ]
+
+        # 입력 준비 (DeepSeek VL2 전용 API)
+        prepare_inputs = model.prepare_inputs_for_generation
+        inputs = model.build_conversation_input_ids(
+            tokenizer=tokenizer,
+            conversation=conversation,
+            images=[image_path],
+            force_batchify=True
+        )
+        inputs = {k: v.to(device) for k, v in inputs.items()}
 
         # 추론
         with torch.no_grad():
@@ -93,21 +109,20 @@ Ensure proper recognition of both Korean and English characters."""
                 **inputs,
                 max_new_tokens=2048,
                 do_sample=False,
-                temperature=0.0,
             )
 
         # 텍스트 디코딩
-        text = processor.decode(outputs[0], skip_special_tokens=True)
+        text = tokenizer.decode(outputs[0][inputs["input_ids"].shape[1]:], skip_special_tokens=True)
 
-        # 프롬프트 제거
-        if prompt in text:
-            text = text.replace(prompt, "").strip()
-
-        return text
+        return text.strip()
 
     except Exception as e:
         logger.error(f"OCR 처리 중 오류: {e}")
         raise
+    finally:
+        # 임시 파일 삭제
+        if os.path.exists(image_path):
+            os.unlink(image_path)
 
 
 def _ocr_image(image_path: str) -> str:
