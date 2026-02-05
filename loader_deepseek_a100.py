@@ -44,40 +44,43 @@ def _load_model():
                 trust_remote_code=True
             )
 
+            # Flash Attention 2 사용 가능 여부 확인
+            try:
+                import flash_attn
+                use_flash_attn = True
+                logger.info("Flash Attention 2 감지됨 - 사용 활성화")
+            except ImportError:
+                use_flash_attn = False
+                logger.warning("⚠️  Flash Attention 2 미설치 - 기본 attention 사용")
+
             # A100 최적화 설정
-            # - bfloat16: A100 최적화 데이터 타입
-            # - Flash Attention 2: 자동 활성화 (설치된 경우)
-            # - device_map="auto": 자동 GPU 할당
-            _model_cache = AutoModel.from_pretrained(
-                model_name,
-                trust_remote_code=True,
-                torch_dtype=torch.bfloat16,  # A100 최적화
-                device_map="auto",
-                attn_implementation="flash_attention_2",  # Flash Attention 2 사용
-            )
-
-            _model_cache.eval()
-            logger.info("✓ 모델 로딩 완료")
-            logger.info("✓ A100 최적화 활성화: bfloat16 + Flash Attention 2")
-
-        except Exception as e:
-            logger.error(f"❌ 모델 로딩 실패: {e}")
-
-            # Flash Attention 2 없이 재시도
-            if "flash_attention_2" in str(e):
-                logger.warning("Flash Attention 2 없이 재시도...")
+            if use_flash_attn:
+                _model_cache = AutoModel.from_pretrained(
+                    model_name,
+                    trust_remote_code=True,
+                    torch_dtype=torch.bfloat16,
+                    device_map="auto",
+                    attn_implementation="flash_attention_2",
+                )
+                logger.info("✓ 모델 로딩 완료")
+                logger.info("✓ A100 최적화 활성화: bfloat16 + Flash Attention 2")
+            else:
                 _model_cache = AutoModel.from_pretrained(
                     model_name,
                     trust_remote_code=True,
                     torch_dtype=torch.bfloat16,
                     device_map="auto",
                 )
-                _model_cache.eval()
-                logger.info("✓ 모델 로딩 완료 (Flash Attention 2 없음)")
-            else:
-                logger.error("다음 명령어로 수동 다운로드를 시도하세요:")
-                logger.error(f"  huggingface-cli download {model_name}")
-                raise
+                logger.info("✓ 모델 로딩 완료")
+                logger.info("✓ A100 최적화 활성화: bfloat16 (Flash Attention 2 없음)")
+
+            _model_cache.eval()
+
+        except Exception as e:
+            logger.error(f"❌ 모델 로딩 실패: {e}")
+            logger.error("다음 명령어로 수동 다운로드를 시도하세요:")
+            logger.error(f"  huggingface-cli download {model_name}")
+            raise
 
     return _model_cache, _tokenizer_cache
 
