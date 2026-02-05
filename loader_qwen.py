@@ -5,27 +5,27 @@ import logging
 from pathlib import Path
 import torch
 from PIL import Image
-from transformers import Qwen2VLForConditionalGeneration, AutoProcessor
-from qwen_vl_utils import process_vision_info
+from transformers import AutoModelForCausalLM, AutoProcessor
 import fitz  # PyMuPDF
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Qwen 모델 캐시
+# Qwen3-VL 모델 캐시
 _model_cache = None
 _processor_cache = None
 
 
 def _load_model():
-    """Qwen2-VL 모델 로드"""
+    """Qwen3-VL 모델 로드"""
     global _model_cache, _processor_cache
 
     if _model_cache is None:
-        logger.info("Qwen2-VL 모델 로딩 중...")
+        logger.info("Qwen3-VL 모델 로딩 중...")
 
-        # Qwen2-VL-7B 사용 (OCR 성능 우수)
-        model_name = "Qwen/Qwen2-VL-7B-Instruct"
+        # Qwen3-VL-4B 사용 (빠른 속도, RTX 3080 10GB에 최적)
+        # 더 높은 품질이 필요하면: "Qwen/Qwen3-VL-8B-Instruct" (느림)
+        model_name = "Qwen/Qwen3-VL-4B-Instruct"
 
         # GPU 확인
         device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -42,10 +42,10 @@ def _load_model():
             )
 
             # Model 로드
-            _model_cache = Qwen2VLForConditionalGeneration.from_pretrained(
+            _model_cache = AutoModelForCausalLM.from_pretrained(
                 model_name,
                 trust_remote_code=True,
-                torch_dtype=torch.float16 if device == "cuda" else torch.float32,
+                torch_dtype=torch.bfloat16 if device == "cuda" else torch.float32,
                 device_map="auto" if device == "cuda" else None,
             )
 
@@ -66,7 +66,7 @@ def _load_model():
 
 def _extract_text_from_image(image: Image.Image) -> str:
     """
-    Qwen2-VL로 이미지에서 텍스트 추출
+    Qwen3-VL로 이미지에서 텍스트 추출
     """
     model, processor = _load_model()
     device = next(model.parameters()).device
@@ -79,22 +79,13 @@ def _extract_text_from_image(image: Image.Image) -> str:
         image = image.resize(new_size, Image.Resampling.LANCZOS)
         logger.info(f"이미지 리사이징: {new_size}")
 
-    # 이미지를 임시 파일로 저장 (Qwen2-VL은 파일 경로 필요)
-    import tempfile
-    with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
-        image.save(tmp.name)
-        image_path = tmp.name
-
     try:
-        # OCR 메시지 구성
+        # OCR 프롬프트 구성 (Qwen3-VL 스타일)
         messages = [
             {
                 "role": "user",
                 "content": [
-                    {
-                        "type": "image",
-                        "image": f"file://{image_path}",
-                    },
+                    {"type": "image", "image": image},
                     {
                         "type": "text",
                         "text": """이 이미지에서 모든 텍스트를 정확하게 추출해주세요. 한글과 영어가 포함되어 있을 수 있습니다.
@@ -107,16 +98,13 @@ Please preserve the text layout and return only the extracted text without any a
         ]
 
         # 입력 준비
-        text = processor.apply_chat_template(
+        text_prompt = processor.apply_chat_template(
             messages, tokenize=False, add_generation_prompt=True
         )
-        image_inputs, video_inputs = process_vision_info(messages)
 
         inputs = processor(
-            text=[text],
-            images=image_inputs,
-            videos=video_inputs,
-            padding=True,
+            text=[text_prompt],
+            images=[image],
             return_tensors="pt",
         )
         inputs = inputs.to(device)
@@ -129,7 +117,7 @@ Please preserve the text layout and return only the extracted text without any a
                 do_sample=False,
             )
 
-        # 디코딩
+        # 디코딩 (입력 토큰 제외)
         generated_ids = [
             output_ids[len(input_ids):]
             for input_ids, output_ids in zip(inputs.input_ids, outputs)
@@ -146,10 +134,6 @@ Please preserve the text layout and return only the extracted text without any a
     except Exception as e:
         logger.error(f"OCR 처리 중 오류: {e}")
         raise
-    finally:
-        # 임시 파일 삭제
-        if os.path.exists(image_path):
-            os.unlink(image_path)
 
 
 def _ocr_image(image_path: str) -> str:
@@ -166,6 +150,8 @@ def _ocr_image(image_path: str) -> str:
 
 def _load_pdf_with_qwen(file_path: str) -> str:
     """PDF 파일 OCR"""
+    from tqdm import tqdm
+
     logger.info(f"PDF 파일 OCR: {file_path}")
 
     doc = fitz.open(file_path)
@@ -175,8 +161,8 @@ def _load_pdf_with_qwen(file_path: str) -> str:
         total_pages = len(doc)
         logger.info(f"총 {total_pages} 페이지")
 
-        for i in range(total_pages):
-            logger.info(f"페이지 {i+1}/{total_pages} 처리 중...")
+        # tqdm 프로그레스바 사용
+        for i in tqdm(range(total_pages), desc="PDF 페이지 처리", unit="page"):
             page = doc.load_page(i)
 
             # 페이지를 이미지로 변환
@@ -231,7 +217,7 @@ def _load_pptx(file_path: str) -> str:
 
 def load_document(file_path: str) -> str:
     """
-    Qwen2-VL로 문서 텍스트 추출 (GPU 가속)
+    Qwen3-VL로 문서 텍스트 추출 (GPU 가속)
 
     Args:
         file_path: 문서 경로

@@ -36,7 +36,7 @@ echo ""
 
 # 기타 의존성
 echo "Step 5: 기타 패키지 설치"
-pip install pandas openpyxl python-pptx python-docx
+pip install pandas openpyxl python-pptx python-docx tqdm
 echo ""
 
 # GPU 확인

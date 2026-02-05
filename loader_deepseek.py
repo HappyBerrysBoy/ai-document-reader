@@ -144,6 +144,9 @@ def _ocr_image(image_path: str) -> str:
 
 def _load_pdf_with_deepseek(file_path: str) -> str:
     """PDF 파일 OCR"""
+    from tqdm import tqdm
+    import io
+
     logger.info(f"PDF 파일 OCR: {file_path}")
 
     doc = fitz.open(file_path)
@@ -153,15 +156,14 @@ def _load_pdf_with_deepseek(file_path: str) -> str:
         total_pages = len(doc)
         logger.info(f"총 {total_pages} 페이지")
 
-        for i in range(total_pages):
-            logger.info(f"페이지 {i+1}/{total_pages} 처리 중...")
+        # tqdm 프로그레스바 사용
+        for i in tqdm(range(total_pages), desc="PDF 페이지 처리", unit="page"):
             page = doc.load_page(i)
 
             # 페이지를 이미지로 변환
             pix = page.get_pixmap(alpha=False, dpi=150)
 
             # PIL Image로 변환
-            import io
             img_data = pix.tobytes("png")
             image = Image.open(io.BytesIO(img_data))
 
