@@ -28,9 +28,14 @@ echo "Step 3: Qwen3-VL 관련 패키지 설치"
 pip install einops qwen-vl-utils
 echo ""
 
-# Flash Attention 2 (A100 최적화, 필수)
-echo "Step 4: Flash Attention 2 설치 (A100 필수)"
-pip install flash-attn --no-build-isolation
+# Flash Attention 2 (A100 최적화, 권장)
+echo "Step 4: Flash Attention 2 설치 (A100 권장, 2-3배 속도 향상)"
+# 방법 1: 사전 빌드된 wheel 다운로드 시도
+pip install flash-attn --no-build-isolation 2>/dev/null || \
+# 방법 2: 환경 변수 설정 후 재시도
+TMPDIR=/tmp pip install flash-attn --no-build-isolation 2>/dev/null || \
+# 방법 3: 실패해도 계속 진행 (Flash Attention 없이도 동작 가능)
+echo "⚠️  Flash Attention 2 설치 실패 (선택사항이므로 계속 진행)"
 echo ""
 
 # BitsAndBytes (양자화 지원)
