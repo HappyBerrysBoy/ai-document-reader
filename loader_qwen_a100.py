@@ -5,7 +5,7 @@ import logging
 from pathlib import Path
 import torch
 from PIL import Image
-from transformers import AutoModelForCausalLM, AutoProcessor
+from transformers import Qwen3VLForConditionalGeneration, AutoProcessor
 import fitz  # PyMuPDF
 
 logging.basicConfig(level=logging.INFO)
@@ -51,7 +51,7 @@ def _load_model():
             # - bfloat16: A100 최적화 데이터 타입
             # - Flash Attention 2: 자동 활성화 (설치된 경우)
             # - device_map="auto": 자동 GPU 할당
-            _model_cache = AutoModelForCausalLM.from_pretrained(
+            _model_cache = Qwen3VLForConditionalGeneration.from_pretrained(
                 model_name,
                 trust_remote_code=True,
                 torch_dtype=torch.bfloat16,  # A100 최적화
@@ -69,7 +69,7 @@ def _load_model():
             # Flash Attention 2 없이 재시도
             if "flash_attention_2" in str(e):
                 logger.warning("Flash Attention 2 없이 재시도...")
-                _model_cache = AutoModelForCausalLM.from_pretrained(
+                _model_cache = Qwen3VLForConditionalGeneration.from_pretrained(
                     model_name,
                     trust_remote_code=True,
                     torch_dtype=torch.bfloat16,

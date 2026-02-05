@@ -5,7 +5,7 @@ import logging
 from pathlib import Path
 import torch
 from PIL import Image
-from transformers import AutoModelForCausalLM, AutoProcessor
+from transformers import Qwen3VLForConditionalGeneration, AutoProcessor
 import fitz  # PyMuPDF
 
 logging.basicConfig(level=logging.INFO)
@@ -42,7 +42,7 @@ def _load_model():
             )
 
             # Model 로드
-            _model_cache = AutoModelForCausalLM.from_pretrained(
+            _model_cache = Qwen3VLForConditionalGeneration.from_pretrained(
                 model_name,
                 trust_remote_code=True,
                 torch_dtype=torch.bfloat16 if device == "cuda" else torch.float32,
