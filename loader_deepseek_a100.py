@@ -105,6 +105,9 @@ def _extract_text_from_image(image: Image.Image) -> str:
         image.save(tmp.name)
         image_path = tmp.name
 
+    # 임시 출력 디렉토리 생성
+    temp_output_dir = tempfile.mkdtemp()
+
     try:
         # DeepSeek OCR 프롬프트 (한글/영어 최적화)
         prompt = """<image>
@@ -121,7 +124,7 @@ Extract all text from this image. The text may contain Korean (한글) and Engli
             image_size=640,
             crop_mode=True,
             save_results=False,
-            output_path=None
+            output_path=temp_output_dir
         )
 
         # 결과 추출
@@ -141,6 +144,10 @@ Extract all text from this image. The text may contain Korean (한글) and Engli
         # 임시 파일 삭제
         if os.path.exists(image_path):
             os.unlink(image_path)
+        # 임시 출력 디렉토리 삭제
+        import shutil
+        if os.path.exists(temp_output_dir):
+            shutil.rmtree(temp_output_dir, ignore_errors=True)
 
 
 def _ocr_image(image_path: str) -> str:
