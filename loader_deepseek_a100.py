@@ -116,6 +116,7 @@ Extract all text from this image. The text may contain Korean (한글) and Engli
 
         # DeepSeek OCR의 infer 메서드 사용
         # A100: 더 큰 base_size와 image_size 가능
+        # save_results=True로 설정하여 결과를 파일로 저장
         result = model.infer(
             tokenizer,
             prompt=prompt,
@@ -123,15 +124,27 @@ Extract all text from this image. The text may contain Korean (한글) and Engli
             base_size=1536,  # RTX 3080: 1024, A100: 1536
             image_size=640,
             crop_mode=True,
-            save_results=False,
+            save_results=True,  # True로 변경하여 파일 저장
             output_path=temp_output_dir
         )
 
-        # 결과 추출
-        if isinstance(result, dict):
+        # 결과 파일 읽기
+        # DeepSeek OCR는 output_path에 결과를 저장함
+        import glob
+
+        # 저장된 텍스트 파일 찾기 (*.txt)
+        txt_files = glob.glob(os.path.join(temp_output_dir, "*.txt"))
+
+        if txt_files:
+            # 첫 번째 텍스트 파일 읽기
+            with open(txt_files[0], 'r', encoding='utf-8') as f:
+                response = f.read()
+        elif isinstance(result, dict):
             response = result.get('text', result.get('output', str(result)))
-        else:
+        elif result:
             response = str(result)
+        else:
+            response = ""
 
         return response.strip()
 
