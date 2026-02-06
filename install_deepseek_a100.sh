@@ -22,6 +22,7 @@ echo ""
 echo "Step 2: Transformers 및 DeepSeek OCR 의존성 설치"
 pip install transformers>=4.50.0 accelerate sentencepiece protobuf
 pip install timm einops
+pip install addict matplotlib requests
 echo ""
 
 # Flash Attention 2 (A100 최적화, 권장)
