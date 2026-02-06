@@ -114,19 +114,27 @@ def _extract_text_from_image(image: Image.Image) -> str:
 Extract all text from this image. The text may contain Korean (한글) and English. Return only the text.
 이 이미지에서 모든 텍스트를 정확하게 추출하세요. 텍스트만 반환하고 설명은 제외하세요."""
 
+        # stdout/stderr 억제 (모델이 콘솔에 직접 출력하는 것 방지)
+        import contextlib
+        import io as io_module
+
         # DeepSeek OCR의 infer 메서드 사용
         # A100: 더 큰 base_size와 image_size 가능
         # save_results=True로 설정하여 결과를 파일로 저장
-        result = model.infer(
-            tokenizer,
-            prompt=prompt,
-            image_file=image_path,
-            base_size=1536,  # RTX 3080: 1024, A100: 1536
-            image_size=640,
-            crop_mode=True,
-            save_results=True,  # True로 변경하여 파일 저장
-            output_path=temp_output_dir
-        )
+
+        # stdout 억제
+        with contextlib.redirect_stdout(io_module.StringIO()), \
+             contextlib.redirect_stderr(io_module.StringIO()):
+            result = model.infer(
+                tokenizer,
+                prompt=prompt,
+                image_file=image_path,
+                base_size=1536,  # RTX 3080: 1024, A100: 1536
+                image_size=640,
+                crop_mode=True,
+                save_results=True,  # True로 변경하여 파일 저장
+                output_path=temp_output_dir
+            )
 
         # 결과 파일 읽기
         # DeepSeek OCR는 output_path에 결과를 저장함
