@@ -293,6 +293,72 @@ def load_document(file_path: str) -> str:
             )
 
 
+def summarize_text(text: str) -> str:
+    """
+    DeepSeek 모델을 사용하여 텍스트 요약 생성
+
+    Args:
+        text: 요약할 텍스트
+
+    Returns:
+        요약된 텍스트
+    """
+    model, tokenizer = _load_model()
+    device = next(model.parameters()).device
+
+    logger.info("텍스트 요약 생성 중...")
+
+    # 텍스트가 너무 길면 앞부분만 사용 (토큰 제한)
+    max_chars = 8000  # 약 2000 토큰
+    if len(text) > max_chars:
+        text_to_summarize = text[:max_chars] + "..."
+        logger.info(f"텍스트가 길어서 처음 {max_chars}자만 요약합니다.")
+    else:
+        text_to_summarize = text
+
+    # 요약 프롬프트
+    prompt = f"""다음 문서의 내용을 한글로 요약해주세요. 주요 내용과 핵심 포인트를 포함하여 3-5개 문단으로 작성해주세요.
+
+문서 내용:
+{text_to_summarize}
+
+요약:"""
+
+    try:
+        # stdout 억제
+        import contextlib
+        import io as io_module
+
+        with contextlib.redirect_stdout(io_module.StringIO()), \
+             contextlib.redirect_stderr(io_module.StringIO()):
+
+            # 입력 준비
+            inputs = tokenizer(prompt, return_tensors="pt")
+            inputs = {k: v.to(device) for k, v in inputs.items()}
+
+            # 요약 생성
+            with torch.no_grad():
+                outputs = model.generate(
+                    **inputs,
+                    max_new_tokens=1024,
+                    do_sample=False,
+                    pad_token_id=tokenizer.eos_token_id if tokenizer.eos_token_id else tokenizer.pad_token_id,
+                )
+
+            # 디코딩
+            summary = tokenizer.decode(
+                outputs[0][inputs["input_ids"].shape[1]:],
+                skip_special_tokens=True
+            ).strip()
+
+        logger.info("✓ 요약 생성 완료")
+        return summary
+
+    except Exception as e:
+        logger.error(f"요약 생성 중 오류: {e}")
+        return f"요약 생성 실패: {str(e)}"
+
+
 if __name__ == "__main__":
     if len(sys.argv) > 1:
         text = load_document(sys.argv[1])

@@ -254,6 +254,87 @@ def load_document(file_path: str) -> str:
             )
 
 
+def summarize_text(text: str) -> str:
+    """
+    Qwen3-VL 모델을 사용하여 텍스트 요약 생성
+
+    Args:
+        text: 요약할 텍스트
+
+    Returns:
+        요약된 텍스트
+    """
+    model, processor = _load_model()
+    device = next(model.parameters()).device
+
+    logger.info("텍스트 요약 생성 중...")
+
+    # 텍스트가 너무 길면 앞부분만 사용 (토큰 제한)
+    max_chars = 6000  # RTX 3080: 약 1500 토큰
+    if len(text) > max_chars:
+        text_to_summarize = text[:max_chars] + "..."
+        logger.info(f"텍스트가 길어서 처음 {max_chars}자만 요약합니다.")
+    else:
+        text_to_summarize = text
+
+    # 요약 프롬프트
+    prompt = f"""다음 문서의 내용을 한글로 요약해주세요. 주요 내용과 핵심 포인트를 포함하여 3-5개 문단으로 작성해주세요.
+
+문서 내용:
+{text_to_summarize}
+
+요약:"""
+
+    try:
+        # 메시지 구성
+        messages = [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": prompt}
+                ]
+            }
+        ]
+
+        # 입력 준비
+        text_prompt = processor.apply_chat_template(
+            messages, tokenize=False, add_generation_prompt=True
+        )
+
+        inputs = processor(
+            text=[text_prompt],
+            return_tensors="pt",
+        )
+        inputs = inputs.to(device)
+
+        # 요약 생성
+        with torch.no_grad():
+            outputs = model.generate(
+                **inputs,
+                max_new_tokens=768,  # RTX 3080: 768
+                do_sample=False,
+            )
+
+        # 디코딩 (입력 토큰 제외)
+        generated_ids = [
+            output_ids[len(input_ids):]
+            for input_ids, output_ids in zip(inputs.input_ids, outputs)
+        ]
+
+        summary = processor.batch_decode(
+            generated_ids,
+            skip_special_tokens=True,
+            clean_up_tokenization_spaces=False
+        )[0]
+
+        logger.info("✓ 요약 생성 완료")
+        return summary.strip()
+
+    except Exception as e:
+        logger.error(f"요약 생성 중 오류: {e}")
+        return f"요약 생성 실패: {str(e)}"
+
+
 if __name__ == "__main__":
     if len(sys.argv) > 1:
         text = load_document(sys.argv[1])
