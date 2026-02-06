@@ -82,14 +82,6 @@ def main():
         logger.info(f"✓ 전체 소요 시간: {total_time:.2f}초")
         logger.info("=" * 60)
 
-        # 미리보기
-        if text:
-            print("\n--- 추출된 텍스트 미리보기 (처음 300자) ---")
-            print(text[:300])
-            if len(text) > 300:
-                print("...")
-            print(f"\n전체 내용: {out_path}\n")
-
     except Exception as e:
         logger.error("=" * 60)
         logger.error(f"❌ 오류 발생: {str(e)}")
