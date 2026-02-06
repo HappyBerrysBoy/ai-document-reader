@@ -84,45 +84,34 @@ def _extract_text_from_image(image: Image.Image) -> str:
 
     try:
         # DeepSeek OCR 프롬프트 (한글/영어 최적화)
-        # 기본 OCR: "<image>\nFree OCR."
-        # 한글/영어 명시적 지원
-        prompt = "<image>\nExtract all text from this image. The text may contain Korean (한글) and English. Return only the text."
+        prompt = """<image>
+Extract all text from this image. The text may contain Korean (한글) and English. Return only the text.
+이 이미지에서 모든 텍스트를 정확하게 추출하세요. 텍스트만 반환하고 설명은 제외하세요."""
 
-        # 입력 준비
-        inputs = model.build_conversation_input_ids(
+        # DeepSeek OCR의 infer 메서드 사용
+        result = model.infer(
             tokenizer,
-            query=prompt,
-            images=[image_path],
-            history=[]
+            prompt=prompt,
+            image_file=image_path,
+            base_size=1024,  # RTX 3080: 1024
+            image_size=640,
+            crop_mode=True,
+            save_results=False,
+            output_path=None
         )
 
-        # GPU로 이동
-        inputs = {
-            "input_ids": inputs["input_ids"].unsqueeze(0).to(device),
-            "token_type_ids": inputs["token_type_ids"].unsqueeze(0).to(device),
-            "attention_mask": inputs["attention_mask"].unsqueeze(0).to(device),
-            "images": [[inputs["images"][0].to(device)]],
-        }
+        # 결과 추출
+        if isinstance(result, dict):
+            response = result.get('text', result.get('output', str(result)))
+        else:
+            response = str(result)
 
-        # 추론
-        with torch.no_grad():
-            outputs = model.generate(
-                **inputs,
-                max_new_tokens=2048,
-                do_sample=False,
-                pad_token_id=tokenizer.eos_token_id,
-            )
-
-        # 텍스트 디코딩
-        response = tokenizer.decode(
-            outputs[0][inputs["input_ids"].shape[1]:],
-            skip_special_tokens=True
-        ).strip()
-
-        return response
+        return response.strip()
 
     except Exception as e:
         logger.error(f"OCR 처리 중 오류: {e}")
+        import traceback
+        traceback.print_exc()
         raise
     finally:
         # 임시 파일 삭제

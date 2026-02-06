@@ -20,9 +20,9 @@ echo ""
 
 # Transformers 및 기본 패키지
 echo "Step 2: Transformers 및 DeepSeek OCR 의존성 설치"
-pip install transformers accelerate sentencepiece protobuf
+pip install "transformers>=4.37.0,<4.46.0" accelerate sentencepiece protobuf
 pip install timm einops
-pip install addict matplotlib requests
+pip install addict easydict matplotlib requests
 echo ""
 
 # Flash Attention (선택, GPU 성능 향상)
