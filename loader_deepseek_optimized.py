@@ -122,27 +122,41 @@ def _extract_text_from_image(image: Image.Image, mode: str = "gundam") -> str:
 Extract all text from this image. The text may contain Korean (한글) and English. Return only the text content without any description.
 이 이미지에서 모든 텍스트를 정확하게 추출하세요. 텍스트만 반환하고 설명은 제외하세요."""
 
-        # DeepSeek OCR 추론 (공식 방식)
-        response = model.infer(
-            tokenizer,
-            prompt=prompt,
-            image_file=image_path,
-            base_size=config["base_size"],
-            image_size=config["image_size"],
-            crop_mode=config["crop_mode"],
-            output_path=temp_output_dir,  # 필수 파라미터
-        )
+        # stdout 캡처 (모델이 콘솔에 직접 출력하는 것을 캡처)
+        import contextlib
+        import io as io_module
 
-        # 응답이 문자열인 경우 직접 반환
-        if isinstance(response, str):
+        # stdout을 캡처하여 저장
+        stdout_capture = io_module.StringIO()
+        stderr_capture = io_module.StringIO()
+
+        with contextlib.redirect_stdout(stdout_capture), \
+             contextlib.redirect_stderr(stderr_capture):
+            # DeepSeek OCR 추론 (공식 방식)
+            response = model.infer(
+                tokenizer,
+                prompt=prompt,
+                image_file=image_path,
+                base_size=config["base_size"],
+                image_size=config["image_size"],
+                crop_mode=config["crop_mode"],
+                output_path=temp_output_dir,  # 필수 파라미터
+            )
+
+        # stdout에서 캡처된 OCR 결과 가져오기
+        captured_output = stdout_capture.getvalue()
+
+        # 결과 우선순위:
+        # 1. 캡처된 stdout 출력 (실제 OCR 결과)
+        # 2. 반환된 response 객체
+        if captured_output.strip():
+            return captured_output.strip()
+        elif isinstance(response, str):
             return response.strip()
-
-        # 응답이 딕셔너리인 경우 텍스트 추출
-        if isinstance(response, dict):
+        elif isinstance(response, dict):
             return response.get('text', response.get('output', str(response))).strip()
-
-        # 기타 타입
-        return str(response).strip()
+        else:
+            return str(response).strip() if response else ""
 
     except Exception as e:
         logger.error(f"OCR 처리 중 오류: {e}")
