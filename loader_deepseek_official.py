@@ -195,11 +195,12 @@ def _extract_text_from_image(image: Image.Image, mode: str = "gundam", task: str
 
 def _ocr_image(image_path: str, mode: str = "gundam", save_to_file: bool = False) -> str:
     """이미지 파일 OCR"""
-    logger.info(f"이미지 OCR: {image_path}")
+    logger.info(f"((((((이미지 OCR)))))): {image_path}")
 
     try:
         image = Image.open(image_path).convert("RGB")
         text = _extract_text_from_image(image, mode=mode)
+        logger.info(f"**********text: {text}")
 
         # 파일로 저장 (요청된 경우)
         if save_to_file:

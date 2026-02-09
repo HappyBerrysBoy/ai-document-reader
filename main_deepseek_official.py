@@ -62,7 +62,9 @@ def main():
 
         # OCR 실행
         ocr_start = time.time()
+        logger.info("=" * 50)
         text = load_document(args.file, mode=args.mode, save_to_file=False)
+        logger.info("=" * 40)
         ocr_time = time.time() - ocr_start
 
         if not text.strip():
