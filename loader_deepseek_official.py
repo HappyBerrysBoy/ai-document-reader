@@ -46,7 +46,7 @@ def _load_model():
         logger.info(f"GPU: {gpu_name} ({gpu_memory} GB)")
 
         try:
-            # Tokenizer 로드
+            # Tokenizer 로드 (공식 방식)
             _tokenizer_cache = AutoTokenizer.from_pretrained(
                 model_name,
                 trust_remote_code=True
@@ -77,7 +77,7 @@ def _load_model():
                     use_safetensors=True
                 )
 
-            # 공식 권장: .eval().cuda().to(torch.bfloat16)
+            # 공식 예제: model.eval().cuda().to(torch.bfloat16)
             _model_cache = _model_cache.eval().cuda().to(torch.bfloat16)
 
             logger.info("✓ 모델 로딩 완료 (bfloat16 + CUDA)")
@@ -93,7 +93,7 @@ def _load_model():
 
 def _extract_text_from_image(image: Image.Image, mode: str = "gundam", task: str = "ocr") -> str:
     """
-    DeepSeek OCR로 이미지에서 텍스트 추출
+    DeepSeek OCR로 이미지에서 텍스트 추출 (공식 방식 그대로 사용)
 
     Args:
         image: PIL Image 객체
@@ -102,7 +102,7 @@ def _extract_text_from_image(image: Image.Image, mode: str = "gundam", task: str
             - "small": base_size=640, image_size=640
             - "base": base_size=1024, image_size=1024
             - "large": base_size=1280, image_size=1280
-            - "gundam": base_size=1024, image_size=640, crop_mode=True (권장)
+            - "gundam": base_size=1024, image_size=640, crop_mode=True (공식 예제)
         task: 작업 유형
             - "ocr": 텍스트 추출
             - "markdown": 마크다운 변환
@@ -118,7 +118,7 @@ def _extract_text_from_image(image: Image.Image, mode: str = "gundam", task: str
         "small": {"base_size": 640, "image_size": 640, "crop_mode": False},
         "base": {"base_size": 1024, "image_size": 1024, "crop_mode": False},
         "large": {"base_size": 1280, "image_size": 1280, "crop_mode": False},
-        "gundam": {"base_size": 1024, "image_size": 640, "crop_mode": True},
+        "gundam": {"base_size": 1024, "image_size": 640, "crop_mode": True},  # 공식 예제
     }
 
     config = mode_configs.get(mode, mode_configs["gundam"])
@@ -132,65 +132,51 @@ def _extract_text_from_image(image: Image.Image, mode: str = "gundam", task: str
     temp_output_dir = tempfile.mkdtemp()
 
     try:
-        # 공식 권장 프롬프트
+        # 공식 예제 프롬프트 형식
         if task == "markdown":
+            # 공식 예제: "<image>\n<|grounding|>Convert the document to markdown. "
             prompt = "<image>\n<|grounding|>Convert the document to markdown."
         else:
-            # OCR 전용 프롬프트 (한글/영어 최적화)
-            prompt = """<image>
-Extract all text from this image. The text may contain Korean (한글) and English.
-Return only the extracted text without any additional description or formatting.
-이미지의 모든 텍스트를 추출하세요. 설명 없이 텍스트만 반환하세요."""
+            # OCR 전용 (한글/영어 최적화)
+            prompt = "<image>\nExtract all text from this image. The text may contain Korean (한글) and English."
 
-        # DeepSeek OCR 추론 (공식 방식)
-        # stdout 캡처하지 않고 직접 실행
-        import contextlib
-        import io as io_module
+        # 공식 예제 그대로: model.infer() 호출
+        # res = model.infer(tokenizer, prompt=prompt, image_file=image_file,
+        #                   output_path=output_path, base_size=1024, image_size=640,
+        #                   crop_mode=True, save_results=True, test_compress=True)
 
-        stdout_capture = io_module.StringIO()
+        res = model.infer(
+            tokenizer,
+            prompt=prompt,
+            image_file=image_path,
+            output_path=temp_output_dir,
+            base_size=config["base_size"],
+            image_size=config["image_size"],
+            crop_mode=config["crop_mode"],
+            save_results=True,  # 공식 예제 참고
+            test_compress=True  # 공식 예제 참고
+        )
 
-        with contextlib.redirect_stdout(stdout_capture):
-            response = model.infer(
-                tokenizer,
-                prompt=prompt,
-                image_file=image_path,
-                base_size=config["base_size"],
-                image_size=config["image_size"],
-                crop_mode=config["crop_mode"],
-                output_path=temp_output_dir,
-            )
-
-        # stdout에서 캡처된 OCR 결과 가져오기
-        captured_output = stdout_capture.getvalue()
-
-        # 디버그 라인 필터링
-        if captured_output:
-            lines = captured_output.split('\n')
-            filtered_lines = []
-            for line in lines:
-                # 디버그 메시지 제거
-                if line.strip().startswith('====='):
-                    continue
-                if 'BASE:' in line or 'PATCHES:' in line:
-                    continue
-                if 'torch.Size' in line:
-                    continue
-                if line.strip():
-                    filtered_lines.append(line)
-
-            filtered_output = '\n'.join(filtered_lines).strip()
-            if filtered_output:
-                return filtered_output
-
-        # 캡처된 텍스트가 없으면 response 객체 확인
-        if isinstance(response, str) and response.strip():
-            return response.strip()
-        elif isinstance(response, dict):
-            text = response.get('text', response.get('output', ''))
+        # 결과 처리
+        if isinstance(res, str):
+            return res.strip()
+        elif isinstance(res, dict):
+            # 딕셔너리에서 텍스트 추출
+            text = res.get('text', res.get('output', res.get('result', '')))
             if text:
                 return str(text).strip()
 
-        return ""
+        # output_path에 저장된 파일 확인
+        if os.path.exists(temp_output_dir):
+            result_files = list(Path(temp_output_dir).glob('*.txt'))
+            if result_files:
+                # 첫 번째 결과 파일 읽기
+                with open(result_files[0], 'r', encoding='utf-8') as f:
+                    content = f.read().strip()
+                    if content:
+                        return content
+
+        return str(res).strip() if res else ""
 
     except Exception as e:
         logger.error(f"OCR 처리 중 오류: {e}")
@@ -370,7 +356,7 @@ def load_document(file_path: str, mode: str = "gundam", save_to_file: bool = Tru
 if __name__ == "__main__":
     if len(sys.argv) > 1:
         # 모드 선택 (옵션)
-        mode = "gundam"  # 기본값
+        mode = "gundam"  # 기본값 (공식 예제)
         if len(sys.argv) > 2:
             mode = sys.argv[2]
 
@@ -387,12 +373,12 @@ if __name__ == "__main__":
         print("사용법:")
         print("  python loader_deepseek_official.py <파일경로> [모드]")
         print()
-        print("모드:")
+        print("모드 (공식 문서 기준):")
         print("  tiny   - 가장 빠름 (512x512)")
         print("  small  - 빠름 (640x640)")
         print("  base   - 균형 (1024x1024)")
         print("  large  - 고품질 (1280x1280)")
-        print("  gundam - 권장 (기본값, 1024 base + 640 img + crop)")
+        print("  gundam - 공식 예제 (기본값, base=1024, img=640, crop=True)")
         print()
         print("예시:")
         print("  python loader_deepseek_official.py document.pdf")
