@@ -160,19 +160,28 @@ Please preserve the text layout and return only the extracted text without any a
         raise
 
 
-def _ocr_image(image_path: str) -> str:
+def _ocr_image(image_path: str, save_to_file: bool = False) -> str:
     """이미지 파일 OCR"""
     logger.info(f"이미지 OCR: {image_path}")
 
     try:
         image = Image.open(image_path).convert("RGB")
-        return _extract_text_from_image(image)
+        text = _extract_text_from_image(image)
+
+        # 파일로 저장 (요청된 경우)
+        if save_to_file:
+            output_path = Path(image_path).stem + "_ocr.txt"
+            with open(output_path, 'w', encoding='utf-8') as f:
+                f.write(text)
+            logger.info(f"✓ OCR 결과 저장: {output_path}")
+
+        return text
     except Exception as e:
         logger.error(f"이미지 로드 실패: {e}")
         raise
 
 
-def _load_pdf_with_qwen(file_path: str) -> str:
+def _load_pdf_with_qwen(file_path: str, save_to_file: bool = False) -> str:
     """PDF 파일 OCR"""
     from tqdm import tqdm
 
@@ -202,12 +211,21 @@ def _load_pdf_with_qwen(file_path: str) -> str:
             # OCR
             page_text = _extract_text_from_image(image)
             if page_text:
-                texts.append(page_text)
+                texts.append(f"=== 페이지 {i+1} ===\n{page_text}")
 
     finally:
         doc.close()
 
-    return "\n\n".join(texts)
+    full_text = "\n\n".join(texts)
+
+    # 파일로 저장 (요청된 경우)
+    if save_to_file:
+        output_path = Path(file_path).stem + "_ocr.txt"
+        with open(output_path, 'w', encoding='utf-8') as f:
+            f.write(full_text)
+        logger.info(f"✓ OCR 결과 저장: {output_path}")
+
+    return full_text
 
 
 def _load_docx(file_path: str) -> str:
@@ -242,12 +260,13 @@ def _load_pptx(file_path: str) -> str:
     return "\n".join(parts)
 
 
-def load_document(file_path: str) -> str:
+def load_document(file_path: str, save_to_file: bool = True) -> str:
     """
     Qwen3-VL로 문서 텍스트 추출 (A100 GPU 가속)
 
     Args:
         file_path: 문서 경로
+        save_to_file: True이면 OCR 결과를 파일로 저장 (기본값: True)
 
     Returns:
         추출된 텍스트
@@ -261,105 +280,42 @@ def load_document(file_path: str) -> str:
     logger.info(f"문서 로딩: {file_path}")
 
     if suffix == ".pdf":
-        return _load_pdf_with_qwen(file_path)
+        return _load_pdf_with_qwen(file_path, save_to_file=save_to_file)
     elif suffix in {".png", ".jpg", ".jpeg", ".bmp", ".gif", ".webp", ".tiff", ".tif"}:
-        return _ocr_image(file_path)
+        return _ocr_image(file_path, save_to_file=save_to_file)
     elif suffix == ".docx":
-        return _load_docx(file_path)
+        text = _load_docx(file_path)
+        if save_to_file:
+            output_path = path.stem + "_text.txt"
+            with open(output_path, 'w', encoding='utf-8') as f:
+                f.write(text)
+            logger.info(f"✓ 텍스트 저장: {output_path}")
+        return text
     elif suffix == ".xlsx":
-        return _load_xlsx(file_path)
+        text = _load_xlsx(file_path)
+        if save_to_file:
+            output_path = path.stem + "_text.txt"
+            with open(output_path, 'w', encoding='utf-8') as f:
+                f.write(text)
+            logger.info(f"✓ 텍스트 저장: {output_path}")
+        return text
     elif suffix == ".pptx":
-        return _load_pptx(file_path)
+        text = _load_pptx(file_path)
+        if save_to_file:
+            output_path = path.stem + "_text.txt"
+            with open(output_path, 'w', encoding='utf-8') as f:
+                f.write(text)
+            logger.info(f"✓ 텍스트 저장: {output_path}")
+        return text
     else:
         # 기본: 이미지로 시도
         try:
-            return _ocr_image(file_path)
+            return _ocr_image(file_path, save_to_file=save_to_file)
         except:
             raise ValueError(
                 f"지원하지 않는 파일 형식: {suffix}. "
                 "지원 형식: PDF, PNG, JPG, BMP, GIF, WEBP, TIFF, DOCX, XLSX, PPTX."
             )
-
-
-def summarize_text(text: str) -> str:
-    """
-    Qwen3-VL 모델을 사용하여 텍스트 요약 생성
-
-    Args:
-        text: 요약할 텍스트
-
-    Returns:
-        요약된 텍스트
-    """
-    model, processor = _load_model()
-    device = next(model.parameters()).device
-
-    logger.info("텍스트 요약 생성 중...")
-
-    # 텍스트가 너무 길면 앞부분만 사용 (토큰 제한)
-    max_chars = 8000  # A100: 약 2000 토큰
-    if len(text) > max_chars:
-        text_to_summarize = text[:max_chars] + "..."
-        logger.info(f"텍스트가 길어서 처음 {max_chars}자만 요약합니다.")
-    else:
-        text_to_summarize = text
-
-    # 요약 프롬프트
-    prompt = f"""다음 문서의 내용을 한글로 요약해주세요. 주요 내용과 핵심 포인트를 포함하여 3-5개 문단으로 작성해주세요.
-
-문서 내용:
-{text_to_summarize}
-
-요약:"""
-
-    try:
-        # 메시지 구성
-        messages = [
-            {
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": prompt}
-                ]
-            }
-        ]
-
-        # 입력 준비
-        text_prompt = processor.apply_chat_template(
-            messages, tokenize=False, add_generation_prompt=True
-        )
-
-        inputs = processor(
-            text=[text_prompt],
-            return_tensors="pt",
-        )
-        inputs = inputs.to(device)
-
-        # 요약 생성
-        with torch.no_grad():
-            outputs = model.generate(
-                **inputs,
-                max_new_tokens=1024,  # A100: 1024
-                do_sample=False,
-            )
-
-        # 디코딩 (입력 토큰 제외)
-        generated_ids = [
-            output_ids[len(input_ids):]
-            for input_ids, output_ids in zip(inputs.input_ids, outputs)
-        ]
-
-        summary = processor.batch_decode(
-            generated_ids,
-            skip_special_tokens=True,
-            clean_up_tokenization_spaces=False
-        )[0]
-
-        logger.info("✓ 요약 생성 완료")
-        return summary.strip()
-
-    except Exception as e:
-        logger.error(f"요약 생성 중 오류: {e}")
-        return f"요약 생성 실패: {str(e)}"
 
 
 if __name__ == "__main__":
