@@ -141,6 +141,8 @@ Extract all text from this image. The text may contain Korean (한글) and Engli
                 output_path=temp_output_dir,  # 필수 파라미터
             )
 
+        logger.info(f"()()response: {response}")    
+
         # stdout에서 캡처된 OCR 결과 가져오기
         captured_output = stdout_capture.getvalue()
 
