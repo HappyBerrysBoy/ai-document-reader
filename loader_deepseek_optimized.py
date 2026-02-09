@@ -113,8 +113,13 @@ def _extract_text_from_image(image: Image.Image, mode: str = "gundam") -> str:
         image.save(tmp.name)
         image_path = tmp.name
 
-    # 임시 출력 디렉토리 생성 (DeepSeek OCR은 output_path가 필수)
-    temp_output_dir = tempfile.mkdtemp()
+    # output_path 설정: ./pdfs/{임시파일명}.md
+    output_dir = Path("./pdfs")
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    # 임시 파일명에서 확장자 제거하고 .md로 설정
+    temp_filename = Path(image_path).stem
+    output_path = str(output_dir / f"{temp_filename}.md")
 
     try:
         # 공식 권장 프롬프트 (한글/영어 최적화)
@@ -122,58 +127,35 @@ def _extract_text_from_image(image: Image.Image, mode: str = "gundam") -> str:
 Extract all text from this image. The text may contain Korean (한글) and English. Return only the text content without any description.
 이 이미지에서 모든 텍스트를 정확하게 추출하세요. 텍스트만 반환하고 설명은 제외하세요."""
 
-        # stdout 캡처 (모델이 콘솔에 직접 출력하는 것을 캡처)
-        import contextlib
-        import io as io_module
+        # DeepSeek OCR 추론 (공식 방식)
+        response = model.infer(
+            tokenizer,
+            prompt=prompt,
+            image_file=image_path,
+            base_size=config["base_size"],
+            image_size=config["image_size"],
+            crop_mode=config["crop_mode"],
+            output_path=output_path,
+            save_results=True,
+            test_compress=True
+        )
 
-        # stdout을 캡처하여 저장 (stderr는 출력 유지)
-        stdout_capture = io_module.StringIO()
-
-        with contextlib.redirect_stdout(stdout_capture):
-            # DeepSeek OCR 추론 (공식 방식)
-            response = model.infer(
-                tokenizer,
-                prompt=prompt,
-                image_file=image_path,
-                base_size=config["base_size"],
-                image_size=config["image_size"],
-                crop_mode=config["crop_mode"],
-                output_path=temp_output_dir,  # 필수 파라미터
-            )
-
-        logger.info(f"()()response: {response}")    
-
-        # stdout에서 캡처된 OCR 결과 가져오기
-        captured_output = stdout_capture.getvalue()
-
-        # 디버그 라인 필터링 (=====, BASE:, PATCHES: 등 제거)
-        if captured_output:
-            lines = captured_output.split('\n')
-            filtered_lines = []
-            for line in lines:
-                # 디버그 메시지 필터링
-                if line.strip().startswith('====='):
-                    continue
-                if 'BASE:' in line or 'PATCHES:' in line:
-                    continue
-                if 'torch.Size' in line:
-                    continue
-                if line.strip():
-                    filtered_lines.append(line)
-
-            filtered_output = '\n'.join(filtered_lines).strip()
-            if filtered_output:
-                return filtered_output
-
-        # 캡처된 텍스트가 없으면 response 객체 확인
-        if isinstance(response, str) and response.strip():
+        # 결과 처리
+        if isinstance(response, str):
             return response.strip()
         elif isinstance(response, dict):
-            text = response.get('text', response.get('output', ''))
+            text = response.get('text', response.get('output', response.get('result', '')))
             if text:
                 return str(text).strip()
 
-        return ""
+        # output_path에 저장된 파일 확인
+        if os.path.exists(output_path):
+            with open(output_path, 'r', encoding='utf-8') as f:
+                content = f.read().strip()
+                if content:
+                    return content
+
+        return str(response).strip() if response else ""
 
     except Exception as e:
         logger.error(f"OCR 처리 중 오류: {e}")
@@ -184,10 +166,6 @@ Extract all text from this image. The text may contain Korean (한글) and Engli
         # 임시 파일 삭제
         if os.path.exists(image_path):
             os.unlink(image_path)
-        # 임시 출력 디렉토리 삭제
-        import shutil
-        if os.path.exists(temp_output_dir):
-            shutil.rmtree(temp_output_dir, ignore_errors=True)
 
 
 def _ocr_image(image_path: str, mode: str = "gundam", save_to_file: bool = False) -> str:

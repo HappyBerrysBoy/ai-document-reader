@@ -128,8 +128,13 @@ def _extract_text_from_image(image: Image.Image, mode: str = "gundam", task: str
         image.save(tmp.name)
         image_path = tmp.name
 
-    # 임시 출력 디렉토리 생성
-    temp_output_dir = tempfile.mkdtemp()
+    # output_path 설정: ./pdfs/{임시파일명}.md
+    output_dir = Path("./pdfs")
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    # 임시 파일명에서 확장자 제거하고 .md로 설정
+    temp_filename = Path(image_path).stem
+    output_path = str(output_dir / f"{temp_filename}.md")
 
     try:
         # 공식 예제 프롬프트 형식
@@ -141,24 +146,17 @@ def _extract_text_from_image(image: Image.Image, mode: str = "gundam", task: str
             prompt = "<image>\nExtract all text from this image. The text may contain Korean (한글) and English."
 
         # 공식 예제 그대로: model.infer() 호출
-        # res = model.infer(tokenizer, prompt=prompt, image_file=image_file,
-        #                   output_path=output_path, base_size=1024, image_size=640,
-        #                   crop_mode=True, save_results=True, test_compress=True)
-
-        logger.info(f"**********prompt: {prompt}")
         res = model.infer(
             tokenizer,
             prompt=prompt,
             image_file=image_path,
-            output_path=temp_output_dir,
+            output_path=output_path,
             base_size=config["base_size"],
             image_size=config["image_size"],
             crop_mode=config["crop_mode"],
             save_results=True,  # 공식 예제 참고
             test_compress=True  # 공식 예제 참고
         )
-
-        logger.info(f"**********res: {res}")
 
         # 결과 처리
         if isinstance(res, str):
@@ -170,14 +168,11 @@ def _extract_text_from_image(image: Image.Image, mode: str = "gundam", task: str
                 return str(text).strip()
 
         # output_path에 저장된 파일 확인
-        if os.path.exists(temp_output_dir):
-            result_files = list(Path(temp_output_dir).glob('*.txt'))
-            if result_files:
-                # 첫 번째 결과 파일 읽기
-                with open(result_files[0], 'r', encoding='utf-8') as f:
-                    content = f.read().strip()
-                    if content:
-                        return content
+        if os.path.exists(output_path):
+            with open(output_path, 'r', encoding='utf-8') as f:
+                content = f.read().strip()
+                if content:
+                    return content
 
         return str(res).strip() if res else ""
 
@@ -190,20 +185,15 @@ def _extract_text_from_image(image: Image.Image, mode: str = "gundam", task: str
         # 임시 파일 삭제
         if os.path.exists(image_path):
             os.unlink(image_path)
-        # 임시 출력 디렉토리 삭제
-        import shutil
-        if os.path.exists(temp_output_dir):
-            shutil.rmtree(temp_output_dir, ignore_errors=True)
 
 
 def _ocr_image(image_path: str, mode: str = "gundam", save_to_file: bool = False) -> str:
     """이미지 파일 OCR"""
-    logger.info(f"((((((이미지 OCR)))))): {image_path}")
+    logger.info(f"이미지 OCR: {image_path}")
 
     try:
         image = Image.open(image_path).convert("RGB")
         text = _extract_text_from_image(image, mode=mode)
-        logger.info(f"**********text: {text}")
 
         # 파일로 저장 (요청된 경우)
         if save_to_file:

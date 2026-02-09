@@ -28,6 +28,12 @@ def main():
         help="저장할 텍스트 파일 경로 (미지정 시 입력파일명_deepseek_a100.txt)",
     )
     parser.add_argument(
+        "-m", "--mode",
+        default="gundam",
+        choices=["tiny", "small", "base", "large", "gundam"],
+        help="OCR 모드 (기본값: gundam, A100 최적화)",
+    )
+    parser.add_argument(
         "--verbose",
         action="store_true",
         help="상세 로그 출력",
@@ -48,13 +54,17 @@ def main():
         logger.info("=" * 60)
         logger.info("DeepSeek OCR 시작 (A100 최적화)")
         logger.info(f"입력 파일: {args.file}")
-        logger.info(f"특징: OCR 전용, 최고속 + 고품질")
-        logger.info(f"최적화: Flash Attention 2 + bfloat16 + 고해상도")
+        logger.info(f"OCR 모드: {args.mode}")
+        logger.info(f"공식 권장: .eval().cuda().to(bfloat16)")
+        if args.mode == "gundam":
+            logger.info(f"Gundam 모드: base=1536, img=640, crop=True (A100 권장)")
+        elif args.mode == "large":
+            logger.info(f"Large 모드: 1536x1536 (A100 최적화)")
         logger.info("=" * 60)
 
         # OCR 실행
         ocr_start = time.time()
-        text = load_document(args.file, save_to_file=False)
+        text = load_document(args.file, mode=args.mode, save_to_file=False)
         ocr_time = time.time() - ocr_start
 
         if not text.strip():

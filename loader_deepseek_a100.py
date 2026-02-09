@@ -85,78 +85,76 @@ def _load_model():
     return _model_cache, _tokenizer_cache
 
 
-def _extract_text_from_image(image: Image.Image, output_dir: str = None) -> str:
+def _extract_text_from_image(image: Image.Image, mode: str = "gundam") -> str:
     """
     DeepSeek OCR로 이미지에서 텍스트 추출 (A100 최적화)
+
+    Args:
+        image: PIL Image 객체
+        mode: OCR 모드 (A100 최적화: large/gundam)
+
+    Returns:
+        추출된 텍스트
     """
     model, tokenizer = _load_model()
-    device = next(model.parameters()).device
 
-    # A100: 더 큰 이미지 처리 가능
-    max_size = 1536  # RTX 3080: 1024, A100: 1536
-    if max(image.size) > max_size:
-        ratio = max_size / max(image.size)
-        new_size = tuple(int(dim * ratio) for dim in image.size)
-        image = image.resize(new_size, Image.Resampling.LANCZOS)
-        logger.info(f"이미지 리사이징: {new_size}")
+    # A100 최적화 모드 설정
+    mode_configs = {
+        "tiny": {"base_size": 512, "image_size": 512, "crop_mode": False},
+        "small": {"base_size": 640, "image_size": 640, "crop_mode": False},
+        "base": {"base_size": 1024, "image_size": 1024, "crop_mode": False},
+        "large": {"base_size": 1536, "image_size": 1536, "crop_mode": False},  # A100 최적화
+        "gundam": {"base_size": 1536, "image_size": 640, "crop_mode": True},  # A100 최적화
+    }
+
+    config = mode_configs.get(mode, mode_configs["gundam"])
 
     # 이미지를 임시 파일로 저장
     with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmp:
         image.save(tmp.name)
         image_path = tmp.name
 
-    # 출력 디렉토리 설정
-    if output_dir is None:
-        temp_output_dir = tempfile.mkdtemp()
-        cleanup_temp = True
-    else:
-        temp_output_dir = output_dir
-        cleanup_temp = False
+    # output_path 설정: ./pdfs/{임시파일명}.md
+    output_dir = Path("./pdfs")
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    # 임시 파일명에서 확장자 제거하고 .md로 설정
+    temp_filename = Path(image_path).stem
+    output_path = str(output_dir / f"{temp_filename}.md")
 
     try:
-        # DeepSeek OCR 프롬프트 (한글/영어 최적화)
-        prompt = """<image>
-Extract all text from this image. The text may contain Korean (한글) and English. Return only the text.
-이 이미지에서 모든 텍스트를 정확하게 추출하세요. 텍스트만 반환하고 설명은 제외하세요."""
+        # 공식 권장 프롬프트 (한글/영어 최적화)
+        prompt = "<image>\nExtract all text from this image. The text may contain Korean (한글) and English."
 
-        # stdout 캡처 (모델이 콘솔에 직접 출력하는 것을 캡처)
-        import contextlib
-        import io as io_module
+        # 공식 방식: model.infer() 호출
+        res = model.infer(
+            tokenizer,
+            prompt=prompt,
+            image_file=image_path,
+            output_path=output_path,
+            base_size=config["base_size"],
+            image_size=config["image_size"],
+            crop_mode=config["crop_mode"],
+            save_results=True,
+            test_compress=True
+        )
 
-        # stdout을 캡처하여 저장
-        stdout_capture = io_module.StringIO()
-        stderr_capture = io_module.StringIO()
+        # 결과 처리
+        if isinstance(res, str):
+            return res.strip()
+        elif isinstance(res, dict):
+            text = res.get('text', res.get('output', res.get('result', '')))
+            if text:
+                return str(text).strip()
 
-        with contextlib.redirect_stdout(stdout_capture), \
-             contextlib.redirect_stderr(stderr_capture):
-            result = model.infer(
-                tokenizer,
-                prompt=prompt,
-                image_file=image_path,
-                base_size=1536,  # RTX 3080: 1024, A100: 1536
-                image_size=640,
-                crop_mode=True,
-                save_results=False,  # False로 설정 - 직접 저장할 것임
-                output_path=temp_output_dir
-            )
+        # output_path에 저장된 파일 확인
+        if os.path.exists(output_path):
+            with open(output_path, 'r', encoding='utf-8') as f:
+                content = f.read().strip()
+                if content:
+                    return content
 
-        # stdout에서 캡처된 OCR 결과 가져오기
-        captured_output = stdout_capture.getvalue()
-
-        # 결과 우선순위:
-        # 1. 캡처된 stdout 출력 (실제 OCR 결과)
-        # 2. 반환된 result 객체
-
-        if captured_output.strip():
-            response = captured_output.strip()
-        elif isinstance(result, dict):
-            response = result.get('text', result.get('output', str(result)))
-        elif result:
-            response = str(result)
-        else:
-            response = ""
-
-        return response.strip()
+        return str(res).strip() if res else ""
 
     except Exception as e:
         logger.error(f"OCR 처리 중 오류: {e}")
@@ -167,20 +165,15 @@ Extract all text from this image. The text may contain Korean (한글) and Engli
         # 임시 파일 삭제
         if os.path.exists(image_path):
             os.unlink(image_path)
-        # 임시 출력 디렉토리 삭제 (cleanup_temp가 True일 때만)
-        if cleanup_temp:
-            import shutil
-            if os.path.exists(temp_output_dir):
-                shutil.rmtree(temp_output_dir, ignore_errors=True)
 
 
-def _ocr_image(image_path: str, save_to_file: bool = False) -> str:
+def _ocr_image(image_path: str, mode: str = "gundam", save_to_file: bool = False) -> str:
     """이미지 파일 OCR"""
     logger.info(f"이미지 OCR: {image_path}")
 
     try:
         image = Image.open(image_path).convert("RGB")
-        text = _extract_text_from_image(image)
+        text = _extract_text_from_image(image, mode=mode)
 
         # 파일로 저장 (요청된 경우)
         if save_to_file:
@@ -195,7 +188,7 @@ def _ocr_image(image_path: str, save_to_file: bool = False) -> str:
         raise
 
 
-def _load_pdf_with_deepseek(file_path: str, save_to_file: bool = False) -> str:
+def _load_pdf_with_deepseek(file_path: str, mode: str = "gundam", save_to_file: bool = False) -> str:
     """PDF 파일 OCR"""
     from tqdm import tqdm
     import io
@@ -224,7 +217,7 @@ def _load_pdf_with_deepseek(file_path: str, save_to_file: bool = False) -> str:
             image = Image.open(io.BytesIO(img_data))
 
             # OCR
-            page_text = _extract_text_from_image(image)
+            page_text = _extract_text_from_image(image, mode=mode)
             if page_text:
                 texts.append(f"=== 페이지 {i+1} ===\n{page_text}")
 
@@ -275,12 +268,14 @@ def _load_pptx(file_path: str) -> str:
     return "\n".join(parts)
 
 
-def load_document(file_path: str, save_to_file: bool = True) -> str:
+def load_document(file_path: str, mode: str = "gundam", save_to_file: bool = True) -> str:
     """
     DeepSeek OCR로 문서 텍스트 추출 (A100 GPU 가속)
 
     Args:
         file_path: 문서 경로
+        mode: OCR 모드 (tiny/small/base/large/gundam)
+            - A100 최적화: large (1536x1536) 또는 gundam (1536 base + 640 img)
         save_to_file: True이면 OCR 결과를 파일로 저장 (기본값: True)
 
     Returns:
@@ -295,9 +290,9 @@ def load_document(file_path: str, save_to_file: bool = True) -> str:
     logger.info(f"문서 로딩: {file_path}")
 
     if suffix == ".pdf":
-        return _load_pdf_with_deepseek(file_path, save_to_file=save_to_file)
+        return _load_pdf_with_deepseek(file_path, mode=mode, save_to_file=save_to_file)
     elif suffix in {".png", ".jpg", ".jpeg", ".bmp", ".gif", ".webp", ".tiff", ".tif"}:
-        return _ocr_image(file_path, save_to_file=save_to_file)
+        return _ocr_image(file_path, mode=mode, save_to_file=save_to_file)
     elif suffix == ".docx":
         text = _load_docx(file_path)
         if save_to_file:
@@ -325,7 +320,7 @@ def load_document(file_path: str, save_to_file: bool = True) -> str:
     else:
         # 기본: 이미지로 시도
         try:
-            return _ocr_image(file_path, save_to_file=save_to_file)
+            return _ocr_image(file_path, mode=mode, save_to_file=save_to_file)
         except:
             raise ValueError(
                 f"지원하지 않는 파일 형식: {suffix}. "
@@ -335,7 +330,12 @@ def load_document(file_path: str, save_to_file: bool = True) -> str:
 
 if __name__ == "__main__":
     if len(sys.argv) > 1:
-        text = load_document(sys.argv[1], save_to_file=True)
+        # 모드 선택 (옵션)
+        mode = "gundam"  # 기본값 (A100 최적화)
+        if len(sys.argv) > 2:
+            mode = sys.argv[2]
+
+        text = load_document(sys.argv[1], mode=mode, save_to_file=True)
         print("=" * 60)
         print("OCR 처리 완료!")
         print("=" * 60)
@@ -344,3 +344,17 @@ if __name__ == "__main__":
         print("--- 추출된 텍스트 (처음 500자) ---")
         print(text[:500])
         print("=" * 60)
+    else:
+        print("사용법:")
+        print("  python loader_deepseek_a100.py <파일경로> [모드]")
+        print()
+        print("모드 (A100 최적화):")
+        print("  tiny   - 가장 빠름 (512x512)")
+        print("  small  - 빠름 (640x640)")
+        print("  base   - 균형 (1024x1024)")
+        print("  large  - 고품질 A100 (1536x1536)")
+        print("  gundam - A100 권장 (기본값, base=1536, img=640, crop=True)")
+        print()
+        print("예시:")
+        print("  python loader_deepseek_a100.py document.pdf")
+        print("  python loader_deepseek_a100.py document.pdf large")
