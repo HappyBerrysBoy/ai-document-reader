@@ -85,7 +85,7 @@ def _load_model():
     return _model_cache, _tokenizer_cache
 
 
-def _extract_text_from_image(image: Image.Image) -> str:
+def _extract_text_from_image(image: Image.Image, output_dir: str = None) -> str:
     """
     DeepSeek OCR로 이미지에서 텍스트 추출 (A100 최적화)
     """
@@ -105,8 +105,13 @@ def _extract_text_from_image(image: Image.Image) -> str:
         image.save(tmp.name)
         image_path = tmp.name
 
-    # 임시 출력 디렉토리 생성
-    temp_output_dir = tempfile.mkdtemp()
+    # 출력 디렉토리 설정
+    if output_dir is None:
+        temp_output_dir = tempfile.mkdtemp()
+        cleanup_temp = True
+    else:
+        temp_output_dir = output_dir
+        cleanup_temp = False
 
     try:
         # DeepSeek OCR 프롬프트 (한글/영어 최적화)
@@ -117,10 +122,6 @@ Extract all text from this image. The text may contain Korean (한글) and Engli
         # stdout 캡처 (모델이 콘솔에 직접 출력하는 것을 캡처)
         import contextlib
         import io as io_module
-
-        # DeepSeek OCR의 infer 메서드 사용
-        # A100: 더 큰 base_size와 image_size 가능
-        # save_results=True로 설정하여 결과를 파일로 저장
 
         # stdout을 캡처하여 저장
         stdout_capture = io_module.StringIO()
@@ -135,7 +136,7 @@ Extract all text from this image. The text may contain Korean (한글) and Engli
                 base_size=1536,  # RTX 3080: 1024, A100: 1536
                 image_size=640,
                 crop_mode=True,
-                save_results=True,  # True로 변경하여 파일 저장
+                save_results=False,  # False로 설정 - 직접 저장할 것임
                 output_path=temp_output_dir
             )
 
@@ -144,26 +145,16 @@ Extract all text from this image. The text may contain Korean (한글) and Engli
 
         # 결과 우선순위:
         # 1. 캡처된 stdout 출력 (실제 OCR 결과)
-        # 2. 저장된 텍스트 파일
-        # 3. 반환된 result 객체
+        # 2. 반환된 result 객체
 
         if captured_output.strip():
-            # stdout에서 캡처된 텍스트 사용
             response = captured_output.strip()
+        elif isinstance(result, dict):
+            response = result.get('text', result.get('output', str(result)))
+        elif result:
+            response = str(result)
         else:
-            # 파일에서 읽기 시도
-            import glob
-            txt_files = glob.glob(os.path.join(temp_output_dir, "*.txt"))
-
-            if txt_files:
-                with open(txt_files[0], 'r', encoding='utf-8') as f:
-                    response = f.read()
-            elif isinstance(result, dict):
-                response = result.get('text', result.get('output', str(result)))
-            elif result:
-                response = str(result)
-            else:
-                response = ""
+            response = ""
 
         return response.strip()
 
@@ -176,25 +167,35 @@ Extract all text from this image. The text may contain Korean (한글) and Engli
         # 임시 파일 삭제
         if os.path.exists(image_path):
             os.unlink(image_path)
-        # 임시 출력 디렉토리 삭제
-        import shutil
-        if os.path.exists(temp_output_dir):
-            shutil.rmtree(temp_output_dir, ignore_errors=True)
+        # 임시 출력 디렉토리 삭제 (cleanup_temp가 True일 때만)
+        if cleanup_temp:
+            import shutil
+            if os.path.exists(temp_output_dir):
+                shutil.rmtree(temp_output_dir, ignore_errors=True)
 
 
-def _ocr_image(image_path: str) -> str:
+def _ocr_image(image_path: str, save_to_file: bool = False) -> str:
     """이미지 파일 OCR"""
     logger.info(f"이미지 OCR: {image_path}")
 
     try:
         image = Image.open(image_path).convert("RGB")
-        return _extract_text_from_image(image)
+        text = _extract_text_from_image(image)
+
+        # 파일로 저장 (요청된 경우)
+        if save_to_file:
+            output_path = Path(image_path).stem + "_ocr.txt"
+            with open(output_path, 'w', encoding='utf-8') as f:
+                f.write(text)
+            logger.info(f"✓ OCR 결과 저장: {output_path}")
+
+        return text
     except Exception as e:
         logger.error(f"이미지 로드 실패: {e}")
         raise
 
 
-def _load_pdf_with_deepseek(file_path: str) -> str:
+def _load_pdf_with_deepseek(file_path: str, save_to_file: bool = False) -> str:
     """PDF 파일 OCR"""
     from tqdm import tqdm
     import io
@@ -225,12 +226,21 @@ def _load_pdf_with_deepseek(file_path: str) -> str:
             # OCR
             page_text = _extract_text_from_image(image)
             if page_text:
-                texts.append(page_text)
+                texts.append(f"=== 페이지 {i+1} ===\n{page_text}")
 
     finally:
         doc.close()
 
-    return "\n\n".join(texts)
+    full_text = "\n\n".join(texts)
+
+    # 파일로 저장 (요청된 경우)
+    if save_to_file:
+        output_path = Path(file_path).stem + "_ocr.txt"
+        with open(output_path, 'w', encoding='utf-8') as f:
+            f.write(full_text)
+        logger.info(f"✓ OCR 결과 저장: {output_path}")
+
+    return full_text
 
 
 def _load_docx(file_path: str) -> str:
@@ -265,12 +275,13 @@ def _load_pptx(file_path: str) -> str:
     return "\n".join(parts)
 
 
-def load_document(file_path: str) -> str:
+def load_document(file_path: str, save_to_file: bool = True) -> str:
     """
     DeepSeek OCR로 문서 텍스트 추출 (A100 GPU 가속)
 
     Args:
         file_path: 문서 경로
+        save_to_file: True이면 OCR 결과를 파일로 저장 (기본값: True)
 
     Returns:
         추출된 텍스트
@@ -284,19 +295,37 @@ def load_document(file_path: str) -> str:
     logger.info(f"문서 로딩: {file_path}")
 
     if suffix == ".pdf":
-        return _load_pdf_with_deepseek(file_path)
+        return _load_pdf_with_deepseek(file_path, save_to_file=save_to_file)
     elif suffix in {".png", ".jpg", ".jpeg", ".bmp", ".gif", ".webp", ".tiff", ".tif"}:
-        return _ocr_image(file_path)
+        return _ocr_image(file_path, save_to_file=save_to_file)
     elif suffix == ".docx":
-        return _load_docx(file_path)
+        text = _load_docx(file_path)
+        if save_to_file:
+            output_path = path.stem + "_text.txt"
+            with open(output_path, 'w', encoding='utf-8') as f:
+                f.write(text)
+            logger.info(f"✓ 텍스트 저장: {output_path}")
+        return text
     elif suffix == ".xlsx":
-        return _load_xlsx(file_path)
+        text = _load_xlsx(file_path)
+        if save_to_file:
+            output_path = path.stem + "_text.txt"
+            with open(output_path, 'w', encoding='utf-8') as f:
+                f.write(text)
+            logger.info(f"✓ 텍스트 저장: {output_path}")
+        return text
     elif suffix == ".pptx":
-        return _load_pptx(file_path)
+        text = _load_pptx(file_path)
+        if save_to_file:
+            output_path = path.stem + "_text.txt"
+            with open(output_path, 'w', encoding='utf-8') as f:
+                f.write(text)
+            logger.info(f"✓ 텍스트 저장: {output_path}")
+        return text
     else:
         # 기본: 이미지로 시도
         try:
-            return _ocr_image(file_path)
+            return _ocr_image(file_path, save_to_file=save_to_file)
         except:
             raise ValueError(
                 f"지원하지 않는 파일 형식: {suffix}. "
@@ -304,74 +333,14 @@ def load_document(file_path: str) -> str:
             )
 
 
-def summarize_text(text: str) -> str:
-    """
-    DeepSeek 모델을 사용하여 텍스트 요약 생성
-
-    Args:
-        text: 요약할 텍스트
-
-    Returns:
-        요약된 텍스트
-    """
-    model, tokenizer = _load_model()
-    device = next(model.parameters()).device
-
-    logger.info("텍스트 요약 생성 중...")
-
-    # 텍스트가 너무 길면 앞부분만 사용 (토큰 제한)
-    max_chars = 8000  # 약 2000 토큰
-    if len(text) > max_chars:
-        text_to_summarize = text[:max_chars] + "..."
-        logger.info(f"텍스트가 길어서 처음 {max_chars}자만 요약합니다.")
-    else:
-        text_to_summarize = text
-
-    # 요약 프롬프트
-    prompt = f"""다음 문서의 내용을 한글로 요약해주세요. 주요 내용과 핵심 포인트를 포함하여 3-5개 문단으로 작성해주세요.
-
-문서 내용:
-{text_to_summarize}
-
-요약:"""
-
-    try:
-        # stdout 억제
-        import contextlib
-        import io as io_module
-
-        with contextlib.redirect_stdout(io_module.StringIO()), \
-             contextlib.redirect_stderr(io_module.StringIO()):
-
-            # 입력 준비
-            inputs = tokenizer(prompt, return_tensors="pt")
-            inputs = {k: v.to(device) for k, v in inputs.items()}
-
-            # 요약 생성
-            with torch.no_grad():
-                outputs = model.generate(
-                    **inputs,
-                    max_new_tokens=1024,
-                    do_sample=False,
-                    pad_token_id=tokenizer.eos_token_id if tokenizer.eos_token_id else tokenizer.pad_token_id,
-                )
-
-            # 디코딩
-            summary = tokenizer.decode(
-                outputs[0][inputs["input_ids"].shape[1]:],
-                skip_special_tokens=True
-            ).strip()
-
-        logger.info("✓ 요약 생성 완료")
-        return summary
-
-    except Exception as e:
-        logger.error(f"요약 생성 중 오류: {e}")
-        return f"요약 생성 실패: {str(e)}"
-
-
 if __name__ == "__main__":
     if len(sys.argv) > 1:
-        text = load_document(sys.argv[1])
+        text = load_document(sys.argv[1], save_to_file=True)
+        print("=" * 60)
+        print("OCR 처리 완료!")
+        print("=" * 60)
+        print(f"추출된 텍스트 길이: {len(text)} 자")
+        print("=" * 60)
         print("--- 추출된 텍스트 (처음 500자) ---")
         print(text[:500])
+        print("=" * 60)
