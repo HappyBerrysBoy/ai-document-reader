@@ -113,6 +113,9 @@ def _extract_text_from_image(image: Image.Image, mode: str = "gundam") -> str:
         image.save(tmp.name)
         image_path = tmp.name
 
+    # 임시 출력 디렉토리 생성 (DeepSeek OCR은 output_path가 필수)
+    temp_output_dir = tempfile.mkdtemp()
+
     try:
         # 공식 권장 프롬프트 (한글/영어 최적화)
         prompt = """<image>
@@ -127,6 +130,7 @@ Extract all text from this image. The text may contain Korean (한글) and Engli
             base_size=config["base_size"],
             image_size=config["image_size"],
             crop_mode=config["crop_mode"],
+            output_path=temp_output_dir,  # 필수 파라미터
         )
 
         # 응답이 문자열인 경우 직접 반환
@@ -149,6 +153,10 @@ Extract all text from this image. The text may contain Korean (한글) and Engli
         # 임시 파일 삭제
         if os.path.exists(image_path):
             os.unlink(image_path)
+        # 임시 출력 디렉토리 삭제
+        import shutil
+        if os.path.exists(temp_output_dir):
+            shutil.rmtree(temp_output_dir, ignore_errors=True)
 
 
 def _ocr_image(image_path: str, mode: str = "gundam", save_to_file: bool = False) -> str:
