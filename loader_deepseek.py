@@ -201,6 +201,7 @@ def _load_pdf_with_deepseek(file_path: str, save_to_file: bool = False) -> str:
             page_text = _extract_text_from_image(image)
             if page_text:
                 texts.append(f"=== 페이지 {i+1} ===\n{page_text}")
+                logger.info(f"****** page_text: {page_text}")
 
     finally:
         doc.close()
