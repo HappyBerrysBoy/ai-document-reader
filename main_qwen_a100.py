@@ -5,7 +5,7 @@ import time
 from pathlib import Path
 import logging
 
-from loader_qwen_a100 import load_document, summarize_text
+from loader_qwen_a100 import load_document
 
 logging.basicConfig(
     level=logging.INFO,
@@ -54,7 +54,7 @@ def main():
 
         # OCR 실행
         ocr_start = time.time()
-        text = load_document(args.file)
+        text = load_document(args.file, save_to_file=False)
         ocr_time = time.time() - ocr_start
 
         if not text.strip():
@@ -67,36 +67,29 @@ def main():
             p = Path(args.file)
             out_path = p.parent / f"{p.stem}_qwen_a100.txt"
 
-        # OCR 결과 저장
+        # 저장
         out_path = out_path.resolve()
         out_path.parent.mkdir(parents=True, exist_ok=True)
         out_path.write_text(text, encoding="utf-8")
-
-        # 요약 생성 및 저장
-        summary_path = None
-        summary_time = 0
-        if text.strip():
-            summary_start = time.time()
-            summary = summarize_text(text)
-            summary_time = time.time() - summary_start
-
-            # 요약 파일 경로 (_summary.txt)
-            summary_path = out_path.parent / f"{out_path.stem}_summary.txt"
-            summary_path.write_text(summary, encoding="utf-8")
 
         # 전체 소요 시간
         total_time = time.time() - start_time
 
         logger.info("=" * 60)
         logger.info(f"✓ OCR 완료")
-        logger.info(f"✓ OCR 결과 저장: {out_path}")
+        logger.info(f"✓ 결과 저장: {out_path}")
         logger.info(f"✓ 추출된 문자 수: {len(text)}")
         logger.info(f"✓ OCR 처리 시간: {ocr_time:.2f}초")
-        if summary_path:
-            logger.info(f"✓ 요약본 저장: {summary_path}")
-            logger.info(f"✓ 요약 생성 시간: {summary_time:.2f}초")
         logger.info(f"✓ 전체 소요 시간: {total_time:.2f}초")
         logger.info("=" * 60)
+
+        # 미리보기
+        if text:
+            print("\n--- 추출된 텍스트 미리보기 (처음 300자) ---")
+            print(text[:300])
+            if len(text) > 300:
+                print("...")
+            print(f"\n전체 내용: {out_path}\n")
 
     except Exception as e:
         logger.error("=" * 60)
