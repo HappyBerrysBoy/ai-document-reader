@@ -145,6 +145,7 @@ def _extract_text_from_image(image: Image.Image, mode: str = "gundam", task: str
         #                   output_path=output_path, base_size=1024, image_size=640,
         #                   crop_mode=True, save_results=True, test_compress=True)
 
+        logger.info(f"**********prompt: {prompt}")
         res = model.infer(
             tokenizer,
             prompt=prompt,
@@ -156,6 +157,8 @@ def _extract_text_from_image(image: Image.Image, mode: str = "gundam", task: str
             save_results=True,  # 공식 예제 참고
             test_compress=True  # 공식 예제 참고
         )
+
+        logger.info(f"**********res: {res}")
 
         # 결과 처리
         if isinstance(res, str):
