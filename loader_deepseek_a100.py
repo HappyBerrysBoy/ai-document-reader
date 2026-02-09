@@ -114,7 +114,7 @@ def _extract_text_from_image(image: Image.Image) -> str:
 Extract all text from this image. The text may contain Korean (한글) and English. Return only the text.
 이 이미지에서 모든 텍스트를 정확하게 추출하세요. 텍스트만 반환하고 설명은 제외하세요."""
 
-        # stdout/stderr 억제 (모델이 콘솔에 직접 출력하는 것 방지)
+        # stdout 캡처 (모델이 콘솔에 직접 출력하는 것을 캡처)
         import contextlib
         import io as io_module
 
@@ -122,9 +122,12 @@ Extract all text from this image. The text may contain Korean (한글) and Engli
         # A100: 더 큰 base_size와 image_size 가능
         # save_results=True로 설정하여 결과를 파일로 저장
 
-        # stdout 억제
-        with contextlib.redirect_stdout(io_module.StringIO()), \
-             contextlib.redirect_stderr(io_module.StringIO()):
+        # stdout을 캡처하여 저장
+        stdout_capture = io_module.StringIO()
+        stderr_capture = io_module.StringIO()
+
+        with contextlib.redirect_stdout(stdout_capture), \
+             contextlib.redirect_stderr(stderr_capture):
             result = model.infer(
                 tokenizer,
                 prompt=prompt,
@@ -136,23 +139,31 @@ Extract all text from this image. The text may contain Korean (한글) and Engli
                 output_path=temp_output_dir
             )
 
-        # 결과 파일 읽기
-        # DeepSeek OCR는 output_path에 결과를 저장함
-        import glob
+        # stdout에서 캡처된 OCR 결과 가져오기
+        captured_output = stdout_capture.getvalue()
 
-        # 저장된 텍스트 파일 찾기 (*.txt)
-        txt_files = glob.glob(os.path.join(temp_output_dir, "*.txt"))
+        # 결과 우선순위:
+        # 1. 캡처된 stdout 출력 (실제 OCR 결과)
+        # 2. 저장된 텍스트 파일
+        # 3. 반환된 result 객체
 
-        if txt_files:
-            # 첫 번째 텍스트 파일 읽기
-            with open(txt_files[0], 'r', encoding='utf-8') as f:
-                response = f.read()
-        elif isinstance(result, dict):
-            response = result.get('text', result.get('output', str(result)))
-        elif result:
-            response = str(result)
+        if captured_output.strip():
+            # stdout에서 캡처된 텍스트 사용
+            response = captured_output.strip()
         else:
-            response = ""
+            # 파일에서 읽기 시도
+            import glob
+            txt_files = glob.glob(os.path.join(temp_output_dir, "*.txt"))
+
+            if txt_files:
+                with open(txt_files[0], 'r', encoding='utf-8') as f:
+                    response = f.read()
+            elif isinstance(result, dict):
+                response = result.get('text', result.get('output', str(result)))
+            elif result:
+                response = str(result)
+            else:
+                response = ""
 
         return response.strip()
 
