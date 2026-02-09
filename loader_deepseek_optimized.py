@@ -126,12 +126,10 @@ Extract all text from this image. The text may contain Korean (한글) and Engli
         import contextlib
         import io as io_module
 
-        # stdout을 캡처하여 저장
+        # stdout을 캡처하여 저장 (stderr는 출력 유지)
         stdout_capture = io_module.StringIO()
-        stderr_capture = io_module.StringIO()
 
-        with contextlib.redirect_stdout(stdout_capture), \
-             contextlib.redirect_stderr(stderr_capture):
+        with contextlib.redirect_stdout(stdout_capture):
             # DeepSeek OCR 추론 (공식 방식)
             response = model.infer(
                 tokenizer,
@@ -146,17 +144,34 @@ Extract all text from this image. The text may contain Korean (한글) and Engli
         # stdout에서 캡처된 OCR 결과 가져오기
         captured_output = stdout_capture.getvalue()
 
-        # 결과 우선순위:
-        # 1. 캡처된 stdout 출력 (실제 OCR 결과)
-        # 2. 반환된 response 객체
-        if captured_output.strip():
-            return captured_output.strip()
-        elif isinstance(response, str):
+        # 디버그 라인 필터링 (=====, BASE:, PATCHES: 등 제거)
+        if captured_output:
+            lines = captured_output.split('\n')
+            filtered_lines = []
+            for line in lines:
+                # 디버그 메시지 필터링
+                if line.strip().startswith('====='):
+                    continue
+                if 'BASE:' in line or 'PATCHES:' in line:
+                    continue
+                if 'torch.Size' in line:
+                    continue
+                if line.strip():
+                    filtered_lines.append(line)
+
+            filtered_output = '\n'.join(filtered_lines).strip()
+            if filtered_output:
+                return filtered_output
+
+        # 캡처된 텍스트가 없으면 response 객체 확인
+        if isinstance(response, str) and response.strip():
             return response.strip()
         elif isinstance(response, dict):
-            return response.get('text', response.get('output', str(response))).strip()
-        else:
-            return str(response).strip() if response else ""
+            text = response.get('text', response.get('output', ''))
+            if text:
+                return str(text).strip()
+
+        return ""
 
     except Exception as e:
         logger.error(f"OCR 처리 중 오류: {e}")
